@@ -17,7 +17,7 @@ func Register(c *fiber.Ctx) error {
 	var data map[string]string
 
 	if err := c.BodyParser(&data); err != nil {
-		return err
+		return c.SendStatus(fiber.StatusBadRequest)
 	}
 
 	password, _ := bcrypt.GenerateFromPassword([]byte(data["password"]), 14)
@@ -30,14 +30,14 @@ func Register(c *fiber.Ctx) error {
 
 	database.DB.Create(&user)
 
-	return c.JSON(user)
+	return c.SendStatus(fiber.StatusCreated)
 }
 
 func Login(c *fiber.Ctx) error {
 	var data map[string]string
 
 	if err := c.BodyParser(&data); err != nil {
-		return err
+		return c.SendStatus(fiber.StatusBadRequest)
 	}
 
 	var user models.User
@@ -45,16 +45,16 @@ func Login(c *fiber.Ctx) error {
 	database.DB.Where("email = ?", data["email"]).First(&user)
 
 	if user.Id == 0 {
-		c.Status(fiber.StatusNotFound)
+		c.Status(fiber.StatusBadRequest)
 		return c.JSON(fiber.Map{
-			"message": "user not found",
+			"message": "Incorrect login or password",
 		})
 	}
 
 	if err := bcrypt.CompareHashAndPassword(user.Password, []byte(data["password"])); err != nil {
 		c.Status(fiber.StatusBadRequest)
 		return c.JSON(fiber.Map{
-			"message": "incorrect password",
+			"message": "Incorrect login or password",
 		})
 	}
 
@@ -66,9 +66,9 @@ func Login(c *fiber.Ctx) error {
 	token, err := claims.SignedString([]byte(SecretKey))
 
 	if err != nil {
-		c.Status(fiber.StatusInternalServerError)
+		c.Status(fiber.StatusBadRequest)
 		return c.JSON(fiber.Map{
-			"message": "could not login",
+			"message": "Could not login",
 		})
 	}
 
@@ -81,9 +81,7 @@ func Login(c *fiber.Ctx) error {
 
 	c.Cookie(&cookie)
 
-	return c.JSON(fiber.Map{
-		"message": "success",
-	})
+	return c.SendStatus(fiber.StatusOK)
 }
 
 func User(c *fiber.Ctx) error {
@@ -94,10 +92,7 @@ func User(c *fiber.Ctx) error {
 	})
 
 	if err != nil {
-		c.Status(fiber.StatusUnauthorized)
-		return c.JSON(fiber.Map{
-			"message": "unauthenticated",
-		})
+		return c.SendStatus(fiber.StatusUnauthorized)
 	}
 
 	claims := token.Claims.(*jwt.StandardClaims)
@@ -119,7 +114,5 @@ func Logout(c *fiber.Ctx) error {
 
 	c.Cookie(&cookie)
 
-	return c.JSON(fiber.Map{
-		"message": "success",
-	})
+	return c.SendStatus(fiber.StatusOK)
 }
