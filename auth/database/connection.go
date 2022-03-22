@@ -2,6 +2,7 @@ package database
 
 import (
 	"auth/models"
+	"errors"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -9,23 +10,21 @@ import (
 	"gorm.io/gorm"
 )
 
-var DB *gorm.DB
-
-func Connect() {
+func Connect() (*gorm.DB, error) {
 	err := godotenv.Load(".env")
 
 	if err != nil {
-		panic("Cannot load .env file")
+		return nil, errors.New("Cannot load .env file")
 	}
 
 	connectionString := os.Getenv("DB_CONNECTION_STRING")
 	connection, err := gorm.Open(postgres.Open(connectionString), &gorm.Config{})
 
 	if err != nil {
-		panic("Could not connect to the database")
+		return nil, errors.New("Could not connect to the database")
 	}
 
-	DB = connection
-
 	connection.AutoMigrate(&models.User{})
+
+	return connection, nil
 }

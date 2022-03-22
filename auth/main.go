@@ -1,15 +1,16 @@
 package main
 
 import (
-	"auth/database"
 	"auth/routes"
+	"auth/services"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 )
 
 func main() {
-	database.Connect()
+	services.InitializeServices()
+	defer services.Logger.Sync()
 
 	app := fiber.New()
 

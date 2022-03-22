@@ -1,13 +1,14 @@
 package controllers
 
 import (
-	"auth/database"
 	"auth/models"
+	"auth/services"
 	"strconv"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gofiber/fiber/v2"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -15,8 +16,8 @@ const SecretKey = "secret"
 
 func Register(c *fiber.Ctx) error {
 	var data map[string]string
-
 	if err := c.BodyParser(&data); err != nil {
+		services.Logger.Warn("Cannot parse register data", zap.Error(err))
 		return c.SendStatus(fiber.StatusBadRequest)
 	}
 
@@ -28,7 +29,7 @@ func Register(c *fiber.Ctx) error {
 		Password: password,
 	}
 
-	database.DB.Create(&user)
+	services.Db.Create(&user)
 
 	return c.SendStatus(fiber.StatusCreated)
 }
@@ -37,12 +38,13 @@ func Login(c *fiber.Ctx) error {
 	var data map[string]string
 
 	if err := c.BodyParser(&data); err != nil {
+		services.Logger.Warn("Cannot parse login data.", zap.Error(err))
 		return c.SendStatus(fiber.StatusBadRequest)
 	}
 
 	var user models.User
 
-	database.DB.Where("email = ?", data["email"]).First(&user)
+	services.Db.Where("email = ?", data["email"]).First(&user)
 
 	if user.Id == 0 {
 		c.Status(fiber.StatusBadRequest)
@@ -99,7 +101,7 @@ func User(c *fiber.Ctx) error {
 
 	var user models.User
 
-	database.DB.Where("id = ?", claims.Issuer).First(&user)
+	services.Db.Where("id = ?", claims.Issuer).First(&user)
 
 	return c.JSON(user)
 }
