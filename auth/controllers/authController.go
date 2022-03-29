@@ -23,7 +23,16 @@ func Register(c *fiber.Ctx) error {
 
 	password, _ := bcrypt.GenerateFromPassword([]byte(data["password"]), 14)
 
-	user := models.User{
+	var user models.User
+
+	if err := services.Db.Where("email = ?", data["email"]).First(&user).Error; err == nil {
+		c.Status(fiber.StatusConflict)
+		return c.JSON(fiber.Map{
+			"message": "This email address is already taken",
+		})
+	}
+
+	user = models.User{
 		Name:     data["name"],
 		Email:    data["email"],
 		Password: password,
