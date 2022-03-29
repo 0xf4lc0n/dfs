@@ -1,8 +1,10 @@
 package controllers
 
 import (
+	"auth/dtos"
 	"auth/models"
 	"auth/services"
+	"auth/validation"
 	"strconv"
 	"time"
 
@@ -15,26 +17,33 @@ import (
 const SecretKey = "secret"
 
 func Register(c *fiber.Ctx) error {
-	var data map[string]string
-	if err := c.BodyParser(&data); err != nil {
+	registerDto := new(dtos.RegisterDto)
+
+	if err := c.BodyParser(&registerDto); err != nil {
 		services.Logger.Warn("Cannot parse register data", zap.Error(err))
 		return c.SendStatus(fiber.StatusBadRequest)
 	}
 
-	password, _ := bcrypt.GenerateFromPassword([]byte(data["password"]), 14)
-
 	var user models.User
 
-	if err := services.Db.Where("email = ?", data["email"]).First(&user).Error; err == nil {
+	if err := services.Db.Where("email = ?", registerDto.Email).First(&user).Error; err == nil {
 		c.Status(fiber.StatusConflict)
 		return c.JSON(fiber.Map{
 			"message": "This email address is already taken",
 		})
 	}
 
+	errors := validation.Validate(registerDto)
+
+	if errors != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(errors)
+	}
+
+	password, _ := bcrypt.GenerateFromPassword([]byte(registerDto.Password), 14)
+
 	user = models.User{
-		Name:     data["name"],
-		Email:    data["email"],
+		Name:     registerDto.Name,
+		Email:    registerDto.Email,
 		Password: password,
 	}
 
@@ -44,16 +53,22 @@ func Register(c *fiber.Ctx) error {
 }
 
 func Login(c *fiber.Ctx) error {
-	var data map[string]string
+	loginDto := new(dtos.LoginDto)
 
-	if err := c.BodyParser(&data); err != nil {
+	if err := c.BodyParser(&loginDto); err != nil {
 		services.Logger.Warn("Cannot parse login data.", zap.Error(err))
 		return c.SendStatus(fiber.StatusBadRequest)
 	}
 
+	errors := validation.Validate(loginDto)
+
+	if errors != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(errors)
+	}
+
 	var user models.User
 
-	services.Db.Where("email = ?", data["email"]).First(&user)
+	services.Db.Where("email = ?", loginDto.Email).First(&user)
 
 	if user.Id == 0 {
 		c.Status(fiber.StatusBadRequest)
@@ -62,7 +77,7 @@ func Login(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := bcrypt.CompareHashAndPassword(user.Password, []byte(data["password"])); err != nil {
+	if err := bcrypt.CompareHashAndPassword(user.Password, []byte(loginDto.Password)); err != nil {
 		c.Status(fiber.StatusBadRequest)
 		return c.JSON(fiber.Map{
 			"message": "Incorrect login or password",
