@@ -1,8 +1,8 @@
 package di
 
 import (
-	"auth/database"
-	"auth/services"
+	"dfs/auth/database"
+	"dfs/auth/services"
 	"log"
 
 	"go.uber.org/zap"
@@ -12,6 +12,7 @@ import (
 var Logger *zap.Logger
 var Db *gorm.DB
 var MailService *services.MailService
+var RpcService *services.RpcService
 
 func InitializeServices() {
 	loggerService, err := zap.NewDevelopment()
@@ -30,4 +31,6 @@ func InitializeServices() {
 	Db = databaseService
 
 	MailService = services.NewMailService(Logger)
+
+	RpcService = services.NewRpcService(Logger)
 }

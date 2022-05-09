@@ -1,7 +1,7 @@
 package database
 
 import (
-	"auth/models"
+	"dfs/auth/models"
 	"errors"
 	"os"
 

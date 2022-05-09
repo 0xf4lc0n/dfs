@@ -1,10 +1,10 @@
 package controllers
 
 import (
-	"auth/di"
-	"auth/dtos"
-	"auth/models"
-	"auth/validation"
+	"dfs/auth/di"
+	"dfs/auth/dtos"
+	"dfs/auth/models"
+	"dfs/auth/validation"
 	"strconv"
 	"strings"
 	"time"

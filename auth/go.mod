@@ -1,4 +1,4 @@
-module auth
+module dfs/auth
 
 go 1.18
 

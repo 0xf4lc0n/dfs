@@ -1,7 +1,7 @@
 package validation
 
 import (
-	"auth/dtos"
+	"dfs/auth/dtos"
 	"unicode"
 
 	"github.com/go-playground/validator"

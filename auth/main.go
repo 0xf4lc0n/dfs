@@ -1,8 +1,8 @@
 package main
 
 import (
-	"auth/di"
-	"auth/routes"
+	"dfs/auth/di"
+	"dfs/auth/routes"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -11,6 +11,8 @@ import (
 func main() {
 	di.InitializeServices()
 	defer di.Logger.Sync()
+
+	go di.RpcService.RegisterValidateJwt()
 
 	app := fiber.New()
 

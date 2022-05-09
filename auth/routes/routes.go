@@ -1,7 +1,7 @@
 package routes
 
 import (
-	"auth/controllers"
+	"dfs/auth/controllers"
 
 	"github.com/gofiber/fiber/v2"
 )
