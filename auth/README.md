@@ -6,6 +6,12 @@
 docker run --rm -p 5432:5432 -e "POSTGRES_PASSWORD=postgres" --name pg postgres:latest
 ```
 
+## Run RabbitMq
+
+```bash
+docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3.10-management
+```
+
 ## Run auth service
 
 Create .env file in the `auth` directory with the following content:
