@@ -103,6 +103,6 @@ func (rpc *RpcService) RegisterValidateJwt() {
 
 func (rpc *RpcService) failOnError(err error, msg string) {
 	if err != nil {
-		rpc.logger.Fatal("{Msg}", zap.String("Msg", msg), zap.Error(err))
+		rpc.logger.Fatal("Cannot register RPC", zap.String("Msg", msg), zap.Error(err))
 	}
 }
