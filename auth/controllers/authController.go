@@ -1,10 +1,12 @@
 package controllers
 
 import (
+	"crypto/rand"
 	"dfs/auth/di"
 	"dfs/auth/dtos"
 	"dfs/auth/models"
 	"dfs/auth/validation"
+	"encoding/base64"
 	"strconv"
 	"strings"
 	"time"
@@ -59,11 +61,26 @@ func Register(c *fiber.Ctx) error {
 
 	password, _ := bcrypt.GenerateFromPassword([]byte(registerDto.Password), 14)
 
+	key := make([]byte, 64)
+	_, err := rand.Read(key)
+
+	if err != nil {
+		di.Logger.Error("Cannot generate encryption key")
+		c.Status(fiber.StatusBadRequest)
+		return c.JSON(fiber.Map{
+			"message": "Cannot send verification mail on the given email address",
+		})
+	}
+
+	encodedKey := base64.StdEncoding.EncodeToString(key)
+
 	user = models.User{
-		Name:     registerDto.Name,
-		Email:    registerDto.Email,
-		Password: password,
-		Verified: false,
+		Name:          registerDto.Name,
+		Email:         registerDto.Email,
+		Password:      password,
+		Verified:      false,
+		HomeDirectory: registerDto.Email,
+		CryptKey:      encodedKey,
 	}
 
 	di.Db.Create(&user)
