@@ -26,6 +26,7 @@ func Connect() (*gorm.DB, error) {
 
 	connection.AutoMigrate(&models.User{})
 	connection.AutoMigrate(&models.VerificationData{})
+	connection.AutoMigrate(&models.File{})
 
 	return connection, nil
 }
