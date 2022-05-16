@@ -1,6 +1,8 @@
 package services
 
 import (
+	"dfs/storage/dtos"
+	"encoding/json"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -94,6 +96,91 @@ func (rpc *RpcClient) GetHomeDirectory(jwt string) string {
 	}
 
 	return ""
+}
+
+func (rpc *RpcClient) GetUserData(jwt string) *dtos.User {
+	ch, err := rpc.connection.Channel()
+
+	if err != nil {
+		rpc.logger.Error("Failed to open a channel", zap.Error(err))
+		return nil
+	}
+
+	defer ch.Close()
+
+	// Anonymous exclusive callback queue
+	callbackQueue, err := ch.QueueDeclare(
+		"",
+		false,
+		false,
+		true,
+		false,
+		nil,
+	)
+
+	if err != nil {
+		rpc.logger.Error("Failed to declare a queue", zap.Error(err))
+		return nil
+	}
+
+	// Get callback messages channel
+	messages, err := ch.Consume(
+		callbackQueue.Name,
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+
+	if err != nil {
+		rpc.logger.Error("Failed to register a consumer", zap.Error(err))
+		return nil
+	}
+
+	// Generate correlation ID for RPC
+	corrId := uuid.New().String()
+
+	rpc.logger.Debug("[-->]", zap.String("Jwt", jwt))
+
+	// Invoke RPC
+	err = ch.Publish(
+		"",
+		"rpc_auth_get_user_data_queue",
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:   "text/plain",
+			CorrelationId: corrId,
+			ReplyTo:       callbackQueue.Name,
+			Body:          []byte(jwt),
+		},
+	)
+
+	if err != nil {
+		rpc.logger.Error("Failed to publish a message", zap.Error(err))
+		return nil
+	}
+	// Listen for RPC responses
+	for msg := range messages {
+		if corrId == msg.CorrelationId {
+			response := string(msg.Body)
+			rpc.logger.Debug("[<--]", zap.String("HomeDirectory", response))
+
+			var userDto dtos.User
+			err := json.Unmarshal([]byte(response), &userDto)
+
+			if err != nil {
+				rpc.logger.Error("Cannot deserialize data to UserDto", zap.Error(err))
+				return nil
+			}
+
+			return &userDto
+		}
+	}
+
+	return nil
 }
 
 func (rpc *RpcClient) IsAuthenticated(jwt string) bool {

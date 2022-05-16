@@ -1,7 +1,9 @@
 package services
 
 import (
+	"dfs/auth/dtos"
 	"dfs/auth/models"
+	"encoding/json"
 	"strconv"
 
 	"github.com/dgrijalva/jwt-go"
@@ -196,6 +198,112 @@ func (rpc *RpcServer) RegisterGetUserHomeDirectory() {
 	}()
 
 	rpc.logger.Info("[*] Awaiting 'GetUserHomeDirectory' RPC requests")
+	<-forever
+}
+
+func (rpc *RpcServer) RegisterGetUserData() {
+	ch, err := rpc.connection.Channel()
+	rpc.failOnError(err, "Failed to open a channel")
+	defer ch.Close()
+
+	// Storage service RPC queue aka RPC Server
+	rpcQueue, err := ch.QueueDeclare(
+		"rpc_auth_get_user_data_queue", // name
+		false,                          // durable
+		false,                          // delete when unused
+		false,                          // exclusive
+		false,                          // no-wait
+		nil,                            // arguments
+	)
+
+	rpc.failOnError(err, "Failed to declare a queue")
+
+	// Don't dispatch a new message to this worker until it has  processed and acknowledged the previous one
+	err = ch.Qos(
+		1,     // prefetch count
+		0,     // prefetch size
+		false, // global
+	)
+
+	rpc.failOnError(err, "Failed to set QoS")
+
+	// Get server messages channel
+	messages, err := ch.Consume(
+		rpcQueue.Name, // queue
+		"",            // consumer
+		false,         // auto-ack
+		false,         // exclusive
+		false,         // no-local
+		false,         // no-wait
+		nil,           // args
+	)
+
+	rpc.failOnError(err, "Failed to register a consumer")
+	forever := make(chan bool)
+
+	go func() {
+		// Listen and preocess each RPC request
+		for msg := range messages {
+			rawToken := string(msg.Body)
+
+			rpc.logger.Debug("[<--]", zap.String("Jwt", rawToken))
+
+			const SecretKey = "secret"
+			token, err := jwt.ParseWithClaims(rawToken, &jwt.StandardClaims{}, func(token *jwt.Token) (interface{}, error) {
+				return []byte(SecretKey), nil
+			})
+
+			var user models.User
+			var userDto *dtos.User = nil
+
+			if err != nil {
+				rpc.logger.Warn("Cannot parse token", zap.Error(err))
+			} else {
+				claims := token.Claims.(*jwt.StandardClaims)
+
+				if err := rpc.db.Where("id = ?", claims.Issuer).Preload("OwnedFiles").First(&user).Error; err != nil {
+					rpc.logger.Debug("Cannot find user", zap.Error(err))
+				} else {
+					userDto = &dtos.User{
+						Id:            user.Id,
+						Name:          user.Name,
+						Email:         user.Email,
+						Verified:      user.Verified,
+						HomeDirectory: user.HomeDirectory,
+						CryptKey:      user.CryptKey,
+						OwnedFiles:    user.OwnedFiles,
+					}
+				}
+			}
+
+			serializedUser, err := json.Marshal(userDto)
+
+			if err != nil {
+				rpc.logger.Error("Cannot serialize userDto to JSON", zap.Error(err))
+			}
+
+			rpc.logger.Debug("[-->]", zap.String("UserData", string(serializedUser)))
+
+			// Send message to client callback queue
+			err = ch.Publish(
+				"",          // exchange
+				msg.ReplyTo, // routing key
+				false,       // mandatory
+				false,       // immediate
+				amqp.Publishing{
+					ContentType:   "text/plain",
+					CorrelationId: msg.CorrelationId,
+					Body:          []byte(serializedUser),
+				})
+
+			rpc.failOnError(err, "Failed to publish a message")
+
+			// Send manual acknowledgement
+			msg.Ack(false)
+		}
+	}()
+
+	rpc.logger.Info("[*] Awaiting 'GetUserData' RPC requests")
 	<-forever
 }
 
