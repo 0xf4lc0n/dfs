@@ -3,5 +3,3 @@ go 1.18
 use ./storage
 
 use ./auth
-
-use ./shared
