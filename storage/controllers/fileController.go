@@ -1,23 +1,27 @@
 package controllers
 
 import (
+	"dfs/auth/models"
 	"dfs/storage/services"
 	"path"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type FileController struct {
 	logger    *zap.Logger
 	rpcClient *services.RpcClient
+	database  *gorm.DB
 }
 
 const STORAGE_PATH = `C:\Users\Falcon\Desktop\Files`
 
-func NewFileController(logger *zap.Logger, rpcClient *services.RpcClient) *FileController {
-	return &FileController{logger: logger, rpcClient: rpcClient}
+func NewFileController(logger *zap.Logger, rpcClient *services.RpcClient, database *gorm.DB) *FileController {
+	return &FileController{logger: logger, rpcClient: rpcClient, database: database}
 }
 
 func (fc *FileController) RegisterRoutes(app *fiber.App) {
@@ -33,15 +37,29 @@ func (fc *FileController) uploadFile(c *fiber.Ctx) error {
 	}
 
 	jwt := c.Cookies("jwt")
-	homeDir := fc.rpcClient.GetHomeDirectory(jwt)
+	userData := fc.rpcClient.GetUserData(jwt)
 
-	if homeDir == "" {
+	if userData == nil {
 		return c.SendStatus(fiber.StatusBadRequest)
 	}
 
 	fileName := uuid.New().String()
-	fullFilePath := path.Join(STORAGE_PATH, homeDir, fileName)
-	return c.SaveFile(file, fullFilePath)
+	fullFilePath := path.Join(STORAGE_PATH, userData.HomeDirectory, fileName)
+
+	saveFileResult := c.SaveFile(file, fullFilePath)
+
+	if saveFileResult == nil {
+		fileEntry := &models.File{
+			UniqueName:   fileName,
+			Name:         file.Filename,
+			CreationDate: time.Now(),
+			OwnerId:      userData.Id,
+		}
+
+		fc.database.Create(&fileEntry)
+	}
+
+	return saveFileResult
 }
 
 func (fc *FileController) downloadFile(c *fiber.Ctx) error {
