@@ -165,18 +165,17 @@ func (rpc *RpcClient) GetUserData(jwt string) *dtos.User {
 	// Listen for RPC responses
 	for msg := range messages {
 		if corrId == msg.CorrelationId {
-			response := string(msg.Body)
-			rpc.logger.Debug("[<--]", zap.String("HomeDirectory", response))
+			rpc.logger.Debug("[<--]", zap.String("UserData", string(msg.Body)))
 
-			var userDto dtos.User
-			err := json.Unmarshal([]byte(response), &userDto)
+			var userDto *dtos.User = nil
+			err := json.Unmarshal(msg.Body, &userDto)
 
 			if err != nil {
 				rpc.logger.Error("Cannot deserialize data to UserDto", zap.Error(err))
 				return nil
 			}
 
-			return &userDto
+			return userDto
 		}
 	}
 
