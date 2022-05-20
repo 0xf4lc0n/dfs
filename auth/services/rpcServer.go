@@ -261,7 +261,7 @@ func (rpc *RpcServer) RegisterGetUserData() {
 			} else {
 				claims := token.Claims.(*jwt.StandardClaims)
 
-				if err := rpc.db.Where("id = ?", claims.Issuer).Preload("OwnedFiles").First(&user).Error; err != nil {
+				if err := rpc.db.Where("id = ?", claims.Issuer).First(&user).Error; err != nil {
 					rpc.logger.Debug("Cannot find user", zap.Error(err))
 				} else {
 					userDto = &dtos.User{
@@ -271,7 +271,6 @@ func (rpc *RpcServer) RegisterGetUserData() {
 						Verified:      user.Verified,
 						HomeDirectory: user.HomeDirectory,
 						CryptKey:      user.CryptKey,
-						OwnedFiles:    user.OwnedFiles,
 					}
 				}
 			}

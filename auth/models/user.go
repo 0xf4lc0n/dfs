@@ -8,5 +8,4 @@ type User struct {
 	Verified      bool   `json:"-"`
 	HomeDirectory string `json:"directory"`
 	CryptKey      string `json:"cryptKey"`
-	OwnedFiles    []File `json:"ownedFiles" gorm:"foreignKey:OwnerId;references:Id;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 }
