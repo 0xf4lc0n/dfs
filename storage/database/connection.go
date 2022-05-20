@@ -1,6 +1,7 @@
 package database
 
 import (
+	"dfs/storage/models"
 	"errors"
 	"os"
 
@@ -22,6 +23,8 @@ func Connect() (*gorm.DB, error) {
 	if err != nil {
 		return nil, errors.New("Could not connect to the database")
 	}
+
+	connection.AutoMigrate(&models.File{})
 
 	return connection, nil
 }
