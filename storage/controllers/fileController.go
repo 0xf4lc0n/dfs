@@ -1,12 +1,14 @@
 package controllers
 
 import (
-	"dfs/auth/models"
+	"dfs/storage/dtos"
+	"dfs/storage/models"
 	"dfs/storage/services"
 	"path"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/session"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -16,17 +18,19 @@ type FileController struct {
 	logger    *zap.Logger
 	rpcClient *services.RpcClient
 	database  *gorm.DB
+	store     *session.Store
 }
 
-const STORAGE_PATH = `C:\Users\Falcon\Desktop\Files`
+const STORAGE_PATH = `C:/Users/Falcon/Desktop/Files`
 
-func NewFileController(logger *zap.Logger, rpcClient *services.RpcClient, database *gorm.DB) *FileController {
-	return &FileController{logger: logger, rpcClient: rpcClient, database: database}
+func NewFileController(logger *zap.Logger, rpcClient *services.RpcClient, database *gorm.DB, store *session.Store) *FileController {
+	return &FileController{logger: logger, rpcClient: rpcClient, database: database, store: store}
 }
 
 func (fc *FileController) RegisterRoutes(app *fiber.App) {
 	app.Post("/api/file", fc.uploadFile)
-	app.Get("/api/file/:fileName", fc.downloadFile)
+	app.Get("/api/file/:fileUniqueName", fc.downloadFile)
+	app.Get("/api/file", fc.getUserFiles)
 }
 
 func (fc *FileController) uploadFile(c *fiber.Ctx) error {
@@ -36,12 +40,14 @@ func (fc *FileController) uploadFile(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
 	}
 
-	jwt := c.Cookies("jwt")
-	userData := fc.rpcClient.GetUserData(jwt)
+	sess, err := fc.store.Get(c)
+	defer sess.Destroy()
 
-	if userData == nil {
-		return c.SendStatus(fiber.StatusBadRequest)
+	if err != nil {
+		fc.logger.Panic("Cannot get session", zap.Error(err))
 	}
+
+	userData := sess.Get("userData").(dtos.User)
 
 	fileName := uuid.New().String()
 	fullFilePath := path.Join(STORAGE_PATH, userData.HomeDirectory, fileName)
@@ -63,7 +69,46 @@ func (fc *FileController) uploadFile(c *fiber.Ctx) error {
 }
 
 func (fc *FileController) downloadFile(c *fiber.Ctx) error {
-	fileName := c.Params("fileName")
-	fullFilePath := path.Join(STORAGE_PATH, fileName)
+	fileUniqueName := c.Params("fileUniqueName")
+
+	sess, err := fc.store.Get(c)
+	defer sess.Destroy()
+
+	if err != nil {
+		fc.logger.Panic("Cannot get session", zap.Error(err))
+	}
+
+	userData := sess.Get("userData").(dtos.User)
+	var file models.File
+
+	if err = fc.database.Where("owner_id = ? AND unique_name = ?", userData.Id, fileUniqueName).First(&file).Error; err != nil {
+		return c.SendStatus(fiber.StatusNotFound)
+	}
+
+	fileName := file.UniqueName
+	fullFilePath := path.Join(STORAGE_PATH, userData.HomeDirectory, fileName)
+
+	fc.logger.Debug("File path", zap.String("FilePath", fullFilePath))
+
 	return c.Download(fullFilePath)
+}
+
+func (fc *FileController) getUserFiles(c *fiber.Ctx) error {
+	sess, err := fc.store.Get(c)
+	defer sess.Destroy()
+
+	if err != nil {
+		fc.logger.Panic("Cannot get session", zap.Error(err))
+	}
+
+	userData := sess.Get("userData").(dtos.User)
+	fc.logger.Debug("User id:", zap.Uint("userId", userData.Id))
+
+	userId := userData.Id
+
+	files := new([]models.File)
+
+	fc.database.Where("owner_id = ?", userId).Find(&files)
+
+	return c.JSON(files)
 }
