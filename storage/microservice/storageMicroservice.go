@@ -42,7 +42,7 @@ func NewStorageMicroservice() *StorageMicroservice {
 
 	app := fiber.New()
 	rpcClient := services.NewRpcClient(logger)
-	rpcServer := services.NewRpcServer(logger)
+	rpcServer := services.NewRpcServer(logger, databaseService)
 	store := session.New()
 	fileController := controllers.NewFileController(logger, rpcClient, databaseService, store)
 
@@ -59,7 +59,7 @@ func (sms *StorageMicroservice) Setup() {
 	sms.app.Use(func(c *fiber.Ctx) error {
 		cookie := c.Cookies("jwt")
 
-		userData := sms.rpcClient.GetUserData(cookie)
+		userData := sms.rpcClient.GetUserDataByJwt(cookie)
 
 		if userData == nil {
 			return c.SendStatus(fiber.StatusUnauthorized)
@@ -85,6 +85,8 @@ func (sms *StorageMicroservice) Setup() {
 
 func (sms *StorageMicroservice) Run() {
 	go sms.rpcServer.RegisterCreateHomeDirectory()
+	go sms.rpcServer.RegisterGetOwnedFile()
+	go sms.rpcServer.RegisterGetFileById()
 	sms.app.Listen(":8081")
 }
 
