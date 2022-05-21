@@ -3,7 +3,7 @@
 ## Run database:
 
 ```bash
-docker run --rm -p 5432:5432 -e "POSTGRES_PASSWORD=postgres" --name pg postgres:latest
+docker run --rm -p 5432:5432 -e "POSTGRES_PASSWORD=postgres" -e "POSTGRES_DB=dfs_auth" --name pg_auth postgres:latest
 ```
 
 ## Run RabbitMq
