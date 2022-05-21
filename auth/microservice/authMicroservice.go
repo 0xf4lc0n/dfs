@@ -58,7 +58,8 @@ func (ams *AuthMicroservice) Setup() {
 func (ams *AuthMicroservice) Run() {
 	go ams.rpcServer.RegisterGetUserHomeDirectory()
 	go ams.rpcServer.RegisterValidateJwt()
-	go ams.rpcServer.RegisterGetUserData()
+	go ams.rpcServer.RegisterGetUserDataByJwt()
+	go ams.rpcServer.RegisterGetUserDataById()
 	ams.app.Listen(":8080")
 }
 

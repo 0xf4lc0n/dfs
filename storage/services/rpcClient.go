@@ -98,7 +98,7 @@ func (rpc *RpcClient) GetHomeDirectory(jwt string) string {
 	return ""
 }
 
-func (rpc *RpcClient) GetUserData(jwt string) *dtos.User {
+func (rpc *RpcClient) GetUserDataByJwt(jwt string) *dtos.User {
 	ch, err := rpc.connection.Channel()
 
 	if err != nil {
@@ -147,7 +147,7 @@ func (rpc *RpcClient) GetUserData(jwt string) *dtos.User {
 	// Invoke RPC
 	err = ch.Publish(
 		"",
-		"rpc_auth_get_user_data_queue",
+		"rpc_auth_get_user_data_by_jwt_queue",
 		false,
 		false,
 		amqp.Publishing{
