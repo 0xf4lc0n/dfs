@@ -3,8 +3,6 @@ package services
 import (
 	"dfs/storage/dtos"
 	"encoding/json"
-	"strconv"
-
 	"github.com/google/uuid"
 	"github.com/streadway/amqp"
 	"go.uber.org/zap"
@@ -21,123 +19,9 @@ func NewRpcClient(logger *zap.Logger) *RpcClient {
 	return &RpcClient{logger: logger, connection: conn}
 }
 
-func (rpc *RpcClient) GetHomeDirectory(jwt string) string {
-	ch, err := rpc.connection.Channel()
-
-	if err != nil {
-		rpc.logger.Error("Failed to open a channel", zap.Error(err))
-		return ""
-	}
-
-	defer ch.Close()
-
-	// Anonymous exclusive callback queue
-	callbackQueue, err := ch.QueueDeclare(
-		"",
-		false,
-		false,
-		true,
-		false,
-		nil,
-	)
-
-	if err != nil {
-		rpc.logger.Error("Failed to declare a queue", zap.Error(err))
-		return ""
-	}
-
-	// Get callback messages channel
-	messages, err := ch.Consume(
-		callbackQueue.Name,
-		"",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-
-	if err != nil {
-		rpc.logger.Error("Failed to register a consumer", zap.Error(err))
-		return ""
-	}
-
-	// Generate correlation ID for RPC
-	corrId := uuid.New().String()
-
-	rpc.logger.Debug("[-->]", zap.String("Jwt", jwt))
-
-	// Invoke RPC
-	err = ch.Publish(
-		"",
-		"rpc_auth_get_user_home_dir_queue",
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:   "text/plain",
-			CorrelationId: corrId,
-			ReplyTo:       callbackQueue.Name,
-			Body:          []byte(jwt),
-		},
-	)
-
-	if err != nil {
-		rpc.logger.Error("Failed to publish a message", zap.Error(err))
-		return ""
-	}
-
-	// Listen for RPC responses
-	for msg := range messages {
-		if corrId == msg.CorrelationId {
-			response := string(msg.Body)
-			rpc.logger.Debug("[<--]", zap.String("HomeDirectory", response))
-			return response
-		}
-	}
-
-	return ""
-}
-
 func (rpc *RpcClient) GetUserDataByJwt(jwt string) *dtos.User {
-	ch, err := rpc.connection.Channel()
-
-	if err != nil {
-		rpc.logger.Error("Failed to open a channel", zap.Error(err))
-		return nil
-	}
-
+	ch, callbackQueue, messages := rpc.createCallbackQueue()
 	defer ch.Close()
-
-	// Anonymous exclusive callback queue
-	callbackQueue, err := ch.QueueDeclare(
-		"",
-		false,
-		false,
-		true,
-		false,
-		nil,
-	)
-
-	if err != nil {
-		rpc.logger.Error("Failed to declare a queue", zap.Error(err))
-		return nil
-	}
-
-	// Get callback messages channel
-	messages, err := ch.Consume(
-		callbackQueue.Name,
-		"",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-
-	if err != nil {
-		rpc.logger.Error("Failed to register a consumer", zap.Error(err))
-		return nil
-	}
 
 	// Generate correlation ID for RPC
 	corrId := uuid.New().String()
@@ -145,7 +29,7 @@ func (rpc *RpcClient) GetUserDataByJwt(jwt string) *dtos.User {
 	rpc.logger.Debug("[-->]", zap.String("Jwt", jwt))
 
 	// Invoke RPC
-	err = ch.Publish(
+	err := ch.Publish(
 		"",
 		"rpc_auth_get_user_data_by_jwt_queue",
 		false,
@@ -182,15 +66,14 @@ func (rpc *RpcClient) GetUserDataByJwt(jwt string) *dtos.User {
 	return nil
 }
 
-func (rpc *RpcClient) IsAuthenticated(jwt string) bool {
+func (rpc *RpcClient) Close() {
+	rpc.connection.Close()
+}
+
+func (rpc *RpcClient) createCallbackQueue() (*amqp.Channel, amqp.Queue, <-chan amqp.Delivery) {
 	ch, err := rpc.connection.Channel()
 
-	if err != nil {
-		rpc.logger.Error("Failed to open a channel", zap.Error(err))
-		return false
-	}
-
-	defer ch.Close()
+	rpc.failOnError(err, "Failed to open a channel")
 
 	// Anonymous exclusive callback queue
 	callbackQueue, err := ch.QueueDeclare(
@@ -202,10 +85,7 @@ func (rpc *RpcClient) IsAuthenticated(jwt string) bool {
 		nil,
 	)
 
-	if err != nil {
-		rpc.logger.Error("Failed to declare a queue", zap.Error(err))
-		return false
-	}
+	rpc.failOnError(err, "Failed to declare a callback queue")
 
 	// Get callback messages channel
 	messages, err := ch.Consume(
@@ -218,53 +98,13 @@ func (rpc *RpcClient) IsAuthenticated(jwt string) bool {
 		nil,
 	)
 
-	if err != nil {
-		rpc.logger.Error("Failed to register a consumer", zap.Error(err))
-		return false
-	}
+	rpc.failOnError(err, "Failed to register a consumer")
 
-	// Generate correlation ID for RPC
-	corrId := uuid.New().String()
-
-	rpc.logger.Debug("[-->]", zap.String("Jwt", jwt))
-
-	// Invoke RPC
-	err = ch.Publish(
-		"",
-		"rpc_auth_validate_jwt_queue",
-		false,
-		false,
-		amqp.Publishing{
-			ContentType:   "text/plain",
-			CorrelationId: corrId,
-			ReplyTo:       callbackQueue.Name,
-			Body:          []byte(jwt),
-		},
-	)
-
-	if err != nil {
-		rpc.logger.Error("Failed to publish a message", zap.Error(err))
-		return false
-	}
-
-	// Listen for RPC responses
-	for msg := range messages {
-		if corrId == msg.CorrelationId {
-			response, err := strconv.ParseBool(string(msg.Body))
-
-			if err != nil {
-				rpc.logger.Error("Failed to convert body to bool", zap.Error(err))
-				return false
-			} else {
-				rpc.logger.Debug("[<--]", zap.Bool("IsAuthenticated", response))
-				return response
-			}
-		}
-	}
-
-	return false
+	return ch, callbackQueue, messages
 }
 
-func (rpc *RpcClient) Close() {
-	rpc.connection.Close()
+func (rpc *RpcClient) failOnError(err error, msg string) {
+	if err != nil {
+		rpc.logger.Fatal("RPC", zap.String("Msg", msg), zap.Error(err))
+	}
 }
