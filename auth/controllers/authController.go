@@ -81,7 +81,7 @@ func (ac *AuthController) Register(c *fiber.Ctx) error {
 
 	password, _ := bcrypt.GenerateFromPassword([]byte(registerDto.Password), 14)
 
-	key := make([]byte, 64)
+	key := make([]byte, 32)
 	_, err := rand.Read(key)
 
 	if err != nil {
