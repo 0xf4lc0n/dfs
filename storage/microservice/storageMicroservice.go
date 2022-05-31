@@ -1,7 +1,10 @@
 package microservice
 
 import (
+	"dfs/storage/config"
+	"github.com/joho/godotenv"
 	"log"
+	"os"
 
 	"dfs/storage/controllers"
 	"dfs/storage/database"
@@ -16,39 +19,44 @@ import (
 )
 
 type StorageMicroservice struct {
+	config         *config.Config
 	logger         *zap.Logger
 	app            *fiber.App
 	store          *session.Store
 	database       *gorm.DB
 	rpcClient      *services.RpcClient
 	rpcServer      *services.RpcServer
+	fileService    *services.FileService
 	fileController *controllers.FileController
 }
 
 func NewStorageMicroservice() *StorageMicroservice {
-	config := zap.NewDevelopmentConfig()
-	config.EncoderConfig.FunctionKey = "func"
-	logger, err := config.Build()
+	cfg := createConfiguration()
+	loggerConfig := zap.NewDevelopmentConfig()
+	loggerConfig.EncoderConfig.FunctionKey = "func"
+	logger, err := loggerConfig.Build()
 
 	if err != nil {
 		log.Fatalf("Cannot initialize zap logger. Reason: %s", err)
 	}
 
-	databaseService, err := database.Connect()
+	databaseService, err := database.Connect(cfg.DbConnectionString)
 
 	if err != nil {
 		log.Fatalf("Cannot initialize database service. Reason: %s", err)
 	}
 
 	app := fiber.New()
+	fileService := services.NewFileService(cfg, logger)
 	rpcClient := services.NewRpcClient(logger)
-	rpcServer := services.NewRpcServer(logger, databaseService)
+	rpcServer := services.NewRpcServer(cfg, logger, databaseService, fileService)
 	store := session.New()
-	fileController := controllers.NewFileController(logger, rpcClient, databaseService, store)
+	fileController := controllers.NewFileController(cfg, logger, rpcClient, databaseService, store)
 
 	store.RegisterType(dtos.User{})
 
-	return &StorageMicroservice{logger: logger, app: app, store: store, database: databaseService, rpcClient: rpcClient, rpcServer: rpcServer, fileController: fileController}
+	return &StorageMicroservice{config: cfg, logger: logger, app: app, store: store, database: databaseService,
+		rpcClient: rpcClient, rpcServer: rpcServer, fileService: fileService, fileController: fileController}
 }
 
 func (sms *StorageMicroservice) Setup() {
@@ -87,6 +95,9 @@ func (sms *StorageMicroservice) Run() {
 	go sms.rpcServer.RegisterCreateHomeDirectory()
 	go sms.rpcServer.RegisterGetOwnedFile()
 	go sms.rpcServer.RegisterGetFileById()
+	go sms.rpcServer.RegisterSaveFileOnDisk()
+	go sms.rpcServer.RegisterDeleteFileFromDisk()
+	go sms.rpcServer.RegisterGetFileContentFromDisk()
 	sms.app.Listen(":8081")
 }
 
@@ -94,4 +105,19 @@ func (sms *StorageMicroservice) Cleanup() {
 	sms.logger.Sync()
 	sms.rpcServer.Close()
 	sms.rpcClient.Close()
+}
+
+func createConfiguration() *config.Config {
+	err := godotenv.Load(".env")
+
+	if err != nil {
+		log.Fatal("Cannot load .env file")
+	}
+
+	cfg := &config.Config{
+		DbConnectionString: os.Getenv("DB_CONNECTION_STRING"),
+		FileStoragePath:    os.Getenv("STORAGE_PATH"),
+	}
+
+	return cfg
 }
