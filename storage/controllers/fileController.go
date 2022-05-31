@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"dfs/storage/config"
 	"dfs/storage/dtos"
 	"dfs/storage/models"
 	"dfs/storage/services"
@@ -15,16 +16,15 @@ import (
 )
 
 type FileController struct {
+	config    *config.Config
 	logger    *zap.Logger
 	rpcClient *services.RpcClient
 	database  *gorm.DB
 	store     *session.Store
 }
 
-const STORAGE_PATH = `C:/Users/Falcon/Desktop/Files`
-
-func NewFileController(logger *zap.Logger, rpcClient *services.RpcClient, database *gorm.DB, store *session.Store) *FileController {
-	return &FileController{logger: logger, rpcClient: rpcClient, database: database, store: store}
+func NewFileController(cfg *config.Config, logger *zap.Logger, rpcClient *services.RpcClient, database *gorm.DB, store *session.Store) *FileController {
+	return &FileController{config: cfg, logger: logger, rpcClient: rpcClient, database: database, store: store}
 }
 
 func (fc *FileController) RegisterRoutes(app *fiber.App) {
@@ -50,7 +50,7 @@ func (fc *FileController) uploadFile(c *fiber.Ctx) error {
 	userData := sess.Get("userData").(dtos.User)
 
 	fileName := uuid.New().String()
-	fullFilePath := path.Join(STORAGE_PATH, userData.HomeDirectory, fileName)
+	fullFilePath := path.Join(fc.config.FileStoragePath, userData.HomeDirectory, fileName)
 
 	saveFileResult := c.SaveFile(file, fullFilePath)
 
@@ -86,7 +86,7 @@ func (fc *FileController) downloadFile(c *fiber.Ctx) error {
 	}
 
 	fileName := file.UniqueName
-	fullFilePath := path.Join(STORAGE_PATH, userData.HomeDirectory, fileName)
+	fullFilePath := path.Join(fc.config.FileStoragePath, userData.HomeDirectory, fileName)
 
 	fc.logger.Debug("File path", zap.String("FilePath", fullFilePath))
 
