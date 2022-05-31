@@ -5,3 +5,5 @@ use ./storage
 use ./auth
 
 use ./share
+
+use ./sharespace
