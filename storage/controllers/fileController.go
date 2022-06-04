@@ -2,113 +2,167 @@ package controllers
 
 import (
 	"dfs/storage/config"
+	"dfs/storage/database"
 	"dfs/storage/dtos"
-	"dfs/storage/models"
 	"dfs/storage/services"
-	"path"
-	"time"
-
+	"encoding/base64"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/session"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
+	"io/ioutil"
+	"path"
 )
 
 type FileController struct {
-	config    *config.Config
-	logger    *zap.Logger
-	rpcClient *services.RpcClient
-	database  *gorm.DB
-	store     *session.Store
+	cfg        *config.Config
+	log        *zap.Logger
+	rpc        *services.RpcClient
+	store      *session.Store
+	storageRpo *database.StorageRepository
+	fileSrv    *services.FileService
 }
 
-func NewFileController(cfg *config.Config, logger *zap.Logger, rpcClient *services.RpcClient, database *gorm.DB, store *session.Store) *FileController {
-	return &FileController{config: cfg, logger: logger, rpcClient: rpcClient, database: database, store: store}
+func NewFileController(cfg *config.Config, log *zap.Logger, rpc *services.RpcClient, store *session.Store,
+	storageRpo *database.StorageRepository, fileSrv *services.FileService) *FileController {
+	return &FileController{cfg: cfg, log: log, rpc: rpc, store: store, storageRpo: storageRpo, fileSrv: fileSrv}
 }
 
 func (fc *FileController) RegisterRoutes(app *fiber.App) {
 	app.Post("/api/file", fc.uploadFile)
 	app.Get("/api/file/:fileUniqueName", fc.downloadFile)
 	app.Get("/api/file", fc.getUserFiles)
+	app.Delete("/api/file/:fileUniqueName", fc.deleteFile)
 }
 
-func (fc *FileController) uploadFile(c *fiber.Ctx) error {
-	file, err := c.FormFile("file")
+func (fc *FileController) uploadFile(ctx *fiber.Ctx) error {
+	fileHeader, err := ctx.FormFile("file")
 
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
 	}
 
-	sess, err := fc.store.Get(c)
+	sess, err := fc.store.Get(ctx)
 	defer sess.Destroy()
 
 	if err != nil {
-		fc.logger.Panic("Cannot get session", zap.Error(err))
+		fc.log.Panic("Cannot get session", zap.Error(err))
 	}
 
 	userData := sess.Get("userData").(dtos.User)
 
-	fileName := uuid.New().String()
-	fullFilePath := path.Join(fc.config.FileStoragePath, userData.HomeDirectory, fileName)
+	fileUniqueName := uuid.New().String()
+	fileSavePath := path.Join(userData.HomeDirectory, fileUniqueName)
 
-	saveFileResult := c.SaveFile(file, fullFilePath)
+	file, err := fileHeader.Open()
 
-	if saveFileResult == nil {
-		fileEntry := &models.File{
-			UniqueName:   fileName,
-			Name:         file.Filename,
-			CreationDate: time.Now(),
-			OwnerId:      userData.Id,
-		}
-
-		fc.database.Create(&fileEntry)
+	if err != nil {
+		fc.log.Error("Cannot open file", zap.Error(err))
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "cannot upload file to the server"})
 	}
 
-	return saveFileResult
+	defer file.Close()
+
+	fileContent, err := ioutil.ReadAll(file)
+
+	if err != nil {
+		fc.log.Error("Cannot read file", zap.Error(err))
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "cannot upload file to the server"})
+	}
+
+	encryptionKey, err := base64.StdEncoding.DecodeString(userData.CryptKey)
+
+	if err != nil {
+		fc.log.Error("Cannot decode encryption key", zap.Error(err))
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "cannot upload file to the server"})
+	}
+
+	if fc.fileSrv.EncryptAndSaveFile(fileSavePath, fileContent, encryptionKey) == false {
+		fc.log.Error("Cannot save file on the disk")
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "cannot upload file to the server"})
+	}
+
+	if fc.storageRpo.CreateFile(fileUniqueName, fileHeader.Filename, userData.Id) != 0 {
+		return ctx.SendStatus(fiber.StatusCreated)
+	} else {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "cannot upload file to the server"})
+	}
 }
 
-func (fc *FileController) downloadFile(c *fiber.Ctx) error {
-	fileUniqueName := c.Params("fileUniqueName")
+func (fc *FileController) downloadFile(ctx *fiber.Ctx) error {
+	fileUniqueName := ctx.Params("fileUniqueName")
 
-	sess, err := fc.store.Get(c)
+	sess, err := fc.store.Get(ctx)
 	defer sess.Destroy()
 
 	if err != nil {
-		fc.logger.Panic("Cannot get session", zap.Error(err))
+		fc.log.Panic("Cannot get session", zap.Error(err))
 	}
 
 	userData := sess.Get("userData").(dtos.User)
-	var file models.File
+	file := fc.storageRpo.GetOwnedFileByName(fileUniqueName, userData.Id)
 
-	if err = fc.database.Where("owner_id = ? AND unique_name = ?", userData.Id, fileUniqueName).First(&file).Error; err != nil {
-		return c.SendStatus(fiber.StatusNotFound)
+	if file == nil {
+		return ctx.SendStatus(fiber.StatusNotFound)
 	}
 
-	fileName := file.UniqueName
-	fullFilePath := path.Join(fc.config.FileStoragePath, userData.HomeDirectory, fileName)
+	readFilePath := path.Join(userData.HomeDirectory, file.UniqueName)
 
-	fc.logger.Debug("File path", zap.String("FilePath", fullFilePath))
+	decryptionKey, err := base64.StdEncoding.DecodeString(userData.CryptKey)
 
-	return c.Download(fullFilePath)
+	if err != nil {
+		fc.log.Error("Cannot decode decryption key", zap.Error(err))
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "cannot download file from the server"})
+	}
+
+	fileContent := fc.fileSrv.DecryptAndReadFileContent(readFilePath, decryptionKey)
+
+	return ctx.Send(fileContent)
 }
 
-func (fc *FileController) getUserFiles(c *fiber.Ctx) error {
-	sess, err := fc.store.Get(c)
+func (fc *FileController) getUserFiles(ctx *fiber.Ctx) error {
+	sess, err := fc.store.Get(ctx)
 	defer sess.Destroy()
 
 	if err != nil {
-		fc.logger.Panic("Cannot get session", zap.Error(err))
+		fc.log.Panic("Cannot get session", zap.Error(err))
 	}
 
 	userData := sess.Get("userData").(dtos.User)
-	fc.logger.Debug("User id:", zap.Uint("userId", userData.Id))
 
-	userId := userData.Id
+	files := fc.storageRpo.GetOwnedFiles(userData.Id)
 
-	files := new([]models.File)
+	return ctx.JSON(files)
+}
 
-	fc.database.Where("owner_id = ?", userId).Find(&files)
+func (fc *FileController) deleteFile(ctx *fiber.Ctx) error {
+	fileUniqueName := ctx.Params("fileUniqueName")
 
-	return c.JSON(files)
+	sess, err := fc.store.Get(ctx)
+	defer sess.Destroy()
+
+	if err != nil {
+		fc.log.Panic("Cannot get session", zap.Error(err))
+	}
+
+	userData := sess.Get("userData").(dtos.User)
+	file := fc.storageRpo.GetOwnedFileByName(fileUniqueName, userData.Id)
+
+	if file == nil {
+		return ctx.SendStatus(fiber.StatusNotFound)
+	}
+
+	deleteFilePath := path.Join(userData.HomeDirectory, file.UniqueName)
+
+	if fc.fileSrv.RemoveFileFromDisk(deleteFilePath) == false {
+		fc.log.Error("Cannot delete file from disk", zap.String("FilePath", deleteFilePath))
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "cannot delete file from the server"})
+	}
+
+	if fc.storageRpo.DeleteFile(file.UniqueName) == false {
+		fc.log.Error("Cannot delete file from database", zap.String("UniqueFileName", file.UniqueName))
+		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "cannot delete file from the server"})
+	}
+
+	return ctx.SendStatus(fiber.StatusOK)
 }
