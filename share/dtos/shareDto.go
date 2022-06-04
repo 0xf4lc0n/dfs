@@ -4,7 +4,7 @@ import "time"
 
 type ShareDto struct {
 	FileId         uint      `json:"fileId"`
-	UserId         uint      `json:"userId"`
+	SharedToId     uint      `json:"sharedToId"`
 	SharedById     uint      `json:"sharedById"`
 	ExpirationTime time.Time `json:"expirationTime"`
 }
