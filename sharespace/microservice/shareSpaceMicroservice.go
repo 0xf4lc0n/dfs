@@ -2,18 +2,15 @@ package microservice
 
 import (
 	"dfs/sharespace/config"
-	"log"
-	"os"
-
 	"dfs/sharespace/controllers"
 	"dfs/sharespace/database"
 	"dfs/sharespace/dtos"
 	"dfs/sharespace/services"
+	"log"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/session"
-	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -31,7 +28,7 @@ type ShareSpaceMicroservice struct {
 }
 
 func NewShareSpaceMicroservice() *ShareSpaceMicroservice {
-	cfg := createConfiguration()
+	cfg := config.Create()
 	loggerConfig := zap.NewDevelopmentConfig()
 	loggerConfig.EncoderConfig.FunctionKey = "func"
 	logger, err := loggerConfig.Build()
@@ -99,18 +96,4 @@ func (sms *ShareSpaceMicroservice) Cleanup() {
 	sms.logger.Sync()
 	sms.rpcServer.Close()
 	sms.rpcClient.Close()
-}
-
-func createConfiguration() *config.Config {
-	err := godotenv.Load(".env")
-
-	if err != nil {
-		log.Fatal("Cannot load .env file")
-	}
-	cfg := &config.Config{
-		DbConnectionString: os.Getenv("DB_CONNECTION_STRING"),
-		FileStoragePath:    os.Getenv("STORAGE_PATH"),
-	}
-
-	return cfg
 }
