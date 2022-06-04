@@ -1,6 +1,7 @@
 package microservice
 
 import (
+	"dfs/share/config"
 	"log"
 
 	"dfs/share/controllers"
@@ -16,25 +17,28 @@ import (
 )
 
 type ShareMicroservice struct {
-	logger         *zap.Logger
-	app            *fiber.App
-	store          *session.Store
-	database       *gorm.DB
-	rpcClient      *services.RpcClient
-	rpcServer      *services.RpcServer
-	fileController *controllers.ShareController
+	config          *config.Config
+	logger          *zap.Logger
+	app             *fiber.App
+	store           *session.Store
+	database        *gorm.DB
+	shareRepository *database.ShareRepository
+	rpcClient       *services.RpcClient
+	rpcServer       *services.RpcServer
+	fileController  *controllers.ShareController
 }
 
 func NewShareMicroservice() *ShareMicroservice {
-	config := zap.NewDevelopmentConfig()
-	config.EncoderConfig.FunctionKey = "func"
-	logger, err := config.Build()
+	cfg := config.Create()
+	loggerCfg := zap.NewDevelopmentConfig()
+	loggerCfg.EncoderConfig.FunctionKey = "func"
+	logger, err := loggerCfg.Build()
 
 	if err != nil {
 		log.Fatalf("Cannot initialize zap logger. Reason: %s", err)
 	}
 
-	databaseService, err := database.Connect()
+	databaseService, err := database.Connect(cfg.DbConnectionString)
 
 	if err != nil {
 		log.Fatalf("Cannot initialize database service. Reason: %s", err)
@@ -43,11 +47,13 @@ func NewShareMicroservice() *ShareMicroservice {
 	app := fiber.New()
 	rpcClient := services.NewRpcClient(logger)
 	rpcServer := services.NewRpcServer(logger)
+	shareRepo := database.NewShareRepository(logger, databaseService)
 	store := session.New()
-	fileController := controllers.NewShareController(logger, rpcClient, databaseService, store)
+	fileController := controllers.NewShareController(logger, rpcClient, store, shareRepo)
 	store.RegisterType(dtos.UserDto{})
 
-	return &ShareMicroservice{logger: logger, app: app, store: store, database: databaseService, rpcClient: rpcClient, rpcServer: rpcServer, fileController: fileController}
+	return &ShareMicroservice{config: cfg, logger: logger, app: app, store: store, database: databaseService,
+		rpcClient: rpcClient, rpcServer: rpcServer, shareRepository: shareRepo, fileController: fileController}
 }
 
 func (sms *ShareMicroservice) Setup() {
@@ -83,7 +89,6 @@ func (sms *ShareMicroservice) Setup() {
 }
 
 func (sms *ShareMicroservice) Run() {
-	// go sms.rpcServer.RegisterCreateHomeDirectory()
 	sms.app.Listen(":8082")
 }
 
