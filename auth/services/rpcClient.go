@@ -20,52 +20,15 @@ func NewRpcClient(logger *zap.Logger) *RpcClient {
 }
 
 func (rpc *RpcClient) CreateHomeDirectory(directoryName string) bool {
-	ch, err := rpc.connection.Channel()
-
-	if err != nil {
-		rpc.logger.Error("Failed to open a channel", zap.Error(err))
-		return false
-	}
-
+	ch, callbackQueue, messages := rpc.createCallbackQueue()
 	defer ch.Close()
-
-	// Anonymous exclusive callback queue
-	callbackQueue, err := ch.QueueDeclare(
-		"",
-		false,
-		false,
-		true,
-		false,
-		nil,
-	)
-
-	if err != nil {
-		rpc.logger.Error("Failed to declare a queue", zap.Error(err))
-		return false
-	}
-
-	// Get callback messages channel
-	messages, err := ch.Consume(
-		callbackQueue.Name,
-		"",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-
-	if err != nil {
-		rpc.logger.Error("Failed to register a consumer", zap.Error(err))
-		return false
-	}
 
 	// Generate correlation ID for RPC
 	corrId := uuid.New().String()
 
 	rpc.logger.Debug("[-->]", zap.String("HomeDirectory", directoryName))
 	// Invoke RPC
-	err = ch.Publish(
+	err := ch.Publish(
 		"",
 		"rpc_storage_create_home_dir_queue",
 		false,
@@ -105,4 +68,43 @@ func (rpc *RpcClient) CreateHomeDirectory(directoryName string) bool {
 
 func (rpc *RpcClient) Close() {
 	rpc.connection.Close()
+}
+
+func (rpc *RpcClient) createCallbackQueue() (*amqp.Channel, amqp.Queue, <-chan amqp.Delivery) {
+	ch, err := rpc.connection.Channel()
+
+	rpc.failOnError(err, "Failed to open a channel")
+
+	// Anonymous exclusive callback queue
+	callbackQueue, err := ch.QueueDeclare(
+		"",
+		false,
+		false,
+		true,
+		false,
+		nil,
+	)
+
+	rpc.failOnError(err, "Failed to declare a callback queue")
+
+	// Get callback messages channel
+	messages, err := ch.Consume(
+		callbackQueue.Name,
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+
+	rpc.failOnError(err, "Failed to register a consumer")
+
+	return ch, callbackQueue, messages
+}
+
+func (rpc *RpcClient) failOnError(err error, msg string) {
+	if err != nil {
+		rpc.logger.Fatal("RPC", zap.String("Msg", msg), zap.Error(err))
+	}
 }
