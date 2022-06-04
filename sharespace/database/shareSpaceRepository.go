@@ -36,18 +36,19 @@ func (ssr *ShareSpaceRepository) CreateShareSpace(shareSpaceName string, ownerId
 	return shareSpace.Id
 }
 
-func (ssr *ShareSpaceRepository) DeleteShareSpace(ssId uint) bool {
-	shareSpace := models.ShareSpace{Id: ssId}
-
-	if err := ssr.database.Delete(&shareSpace).Error; err != nil {
-		return false
-	}
-
-	return true
-}
-
 func (ssr *ShareSpaceRepository) GetShareSpaceById(ssId uint) *models.ShareSpace {
 	shareSpace := models.ShareSpace{Id: ssId}
+
+	if err := ssr.database.First(&shareSpace).Error; err != nil {
+		ssr.logger.Error("Cannot find ShareSpace with the given ID", zap.Error(err))
+		return nil
+	}
+
+	return &shareSpace
+}
+
+func (ssr *ShareSpaceRepository) GetOwnedShareSpaceById(ssId uint, ownerId uint) *models.ShareSpace {
+	shareSpace := models.ShareSpace{Id: ssId, Owner: ownerId}
 
 	if err := ssr.database.First(&shareSpace).Error; err != nil {
 		ssr.logger.Error("Cannot find ShareSpace with the given ID", zap.Error(err))
@@ -142,16 +143,6 @@ func (ssr *ShareSpaceRepository) IsUserMemberOfShareSpace(userId uint, ssId uint
 	return ssr.GetShareSpaceMember(userId, ssId) != nil
 }
 
-func (ssr *ShareSpaceRepository) IsUserOwnerOfShareSpace(userId uint, ssId uint) bool {
-	ssMember := ssr.GetShareSpaceMember(userId, ssId)
-
-	if ssMember != nil {
-		return ssMember.Role == models.Owner
-	}
-
-	return false
-}
-
 func (ssr *ShareSpaceRepository) CanUserDeleteMembers(userId uint, ssId uint) bool {
 	ssMember := ssr.GetShareSpaceMember(userId, ssId)
 
@@ -212,4 +203,33 @@ func (ssr *ShareSpaceRepository) GetFilesFromShareSpace(ssId uint) []models.Shar
 	ssr.database.Where("share_space_id = ?", ssId).Find(&shareSpaceFiles)
 
 	return shareSpaceFiles
+}
+
+func (ssr *ShareSpaceRepository) DeleteEntireShareSpace(ssId uint) bool {
+	err := ssr.database.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("share_space_id = ?", ssId).Delete(&models.ShareSpaceMember{}).Error; err != nil {
+			ssr.logger.Error("Cannot delete users form ShareSpace", zap.Uint("ShareSpaceId", ssId), zap.Error(err))
+			return err
+		}
+
+		if err := tx.Where("share_space_id = ?", ssId).Delete(&models.ShareSpaceFile{}).Error; err != nil {
+			ssr.logger.Error("Cannot delete file from database")
+			return err
+		}
+
+		if err := ssr.database.Delete(&models.ShareSpace{}).Error; err != nil {
+			ssr.logger.Error("Cannot delete ShareSpace", zap.Error(err))
+			return nil
+		}
+
+		// return nil will commit the whole transaction
+		return nil
+	})
+
+	if err != nil {
+		ssr.logger.Error("Cannot delete entire ShareSpace", zap.Error(err))
+		return false
+	}
+
+	return true
 }

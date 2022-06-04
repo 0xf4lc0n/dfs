@@ -85,7 +85,7 @@ func (ssc *ShareSpaceController) createShareSpace(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "cannot create ShareSpace"})
 	}
 
-	if ssc.shareSpaceRepository.AddUserToShareSpace(createdBy.Id, 1, models.Owner); err != nil {
+	if ssc.shareSpaceRepository.AddUserToShareSpace(createdBy.Id, ssId, models.Owner); err != nil {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "cannot create ShareSpace"})
 	}
 
@@ -109,12 +109,19 @@ func (ssc *ShareSpaceController) deleteShareSpace(ctx *fiber.Ctx) error {
 
 	deleteBy := sess.Get("userData").(dtos.UserDto)
 
-	if ssc.shareSpaceRepository.IsUserOwnerOfShareSpace(deleteBy.Id, uint(shareSpaceId)) {
-		ssc.shareSpaceRepository.DeleteShareSpace(uint(shareSpaceId))
-		return ctx.SendStatus(fiber.StatusOK)
-	} else {
+	shareSpace := ssc.shareSpaceRepository.GetOwnedShareSpaceById(uint(shareSpaceId), deleteBy.Id)
+
+	if shareSpace == nil {
 		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "cannot delete unowned ShareSpace"})
 	}
+
+	if ssc.shareSpaceRepository.DeleteEntireShareSpace(uint(shareSpaceId)) == false {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "cannot delete ShareSpace"})
+	}
+
+	ssc.rpcClient.DeleteFileFromDisk(dtos.DeleteFileDto{FilePath: shareSpace.HomeDirectory})
+
+	return ctx.SendStatus(fiber.StatusOK)
 }
 
 func (ssc *ShareSpaceController) getShareSpaces(ctx *fiber.Ctx) error {

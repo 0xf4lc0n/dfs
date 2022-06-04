@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 )
 
 type FileService struct {
@@ -62,9 +63,18 @@ func (fs *FileService) ReadFileFromDisk(filePath string) []byte {
 }
 
 func (fs *FileService) RemoveFileFromDisk(filePath string) bool {
-	deletePath := path.Join(fs.config.FileStoragePath, filePath)
+	cleanedPath := filepath.Clean(filePath)
 
-	if err := os.Remove(deletePath); err != nil {
+	deletePath := path.Join(fs.config.FileStoragePath, cleanedPath)
+
+	_, err := filepath.EvalSymlinks(deletePath)
+
+	if err != nil {
+		fs.logger.Error("Unsafe or invalid file path", zap.Error(err))
+		return false
+	}
+
+	if err := os.RemoveAll(deletePath); err != nil {
 		fs.logger.Error("Cannot remove file from the disk", zap.Error(err))
 		return false
 	}
