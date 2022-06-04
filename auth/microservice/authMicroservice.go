@@ -3,6 +3,7 @@ package microservice
 import (
 	"log"
 
+	"dfs/auth/config"
 	"dfs/auth/controllers"
 	"dfs/auth/database"
 	"dfs/auth/services"
@@ -14,9 +15,12 @@ import (
 )
 
 type AuthMicroservice struct {
+	config         *config.Config
 	logger         *zap.Logger
 	app            *fiber.App
 	database       *gorm.DB
+	usrRepo        *database.UserRepository
+	vrfRepo        *database.VerificationRepository
 	rpcClient      *services.RpcClient
 	rpcServer      *services.RpcServer
 	mail           *services.MailService
@@ -24,15 +28,16 @@ type AuthMicroservice struct {
 }
 
 func NewAuthMicroservice() *AuthMicroservice {
-	config := zap.NewDevelopmentConfig()
-	config.EncoderConfig.FunctionKey = "func"
-	logger, err := config.Build()
+	cfg := config.Create()
+	loggerCfg := zap.NewDevelopmentConfig()
+	loggerCfg.EncoderConfig.FunctionKey = "func"
+	logger, err := loggerCfg.Build()
 
 	if err != nil {
 		log.Fatalf("Cannot initialize zap logger. Reason: %s", err)
 	}
 
-	databaseService, err := database.Connect()
+	databaseService, err := database.Connect(cfg.DbConnectionString)
 
 	if err != nil {
 		log.Fatalf("Cannot initialize database service. Reason: %s", err)
@@ -41,10 +46,13 @@ func NewAuthMicroservice() *AuthMicroservice {
 	app := fiber.New()
 	rpcClient := services.NewRpcClient(logger)
 	rpcServer := services.NewRpcServer(logger, databaseService)
+	usrRepo := database.NewUserRepository(databaseService, logger)
+	vrfRepo := database.NewVerificationRepository(databaseService, logger)
 	mail := services.NewMailService(logger)
-	authController := controllers.NewAuthController(logger, databaseService, mail, rpcClient)
+	authController := controllers.NewAuthController(logger, usrRepo, vrfRepo, mail, rpcClient)
 
-	return &AuthMicroservice{logger: logger, app: app, database: databaseService, rpcClient: rpcClient, rpcServer: rpcServer, authController: authController}
+	return &AuthMicroservice{config: cfg, logger: logger, app: app, database: databaseService, usrRepo: usrRepo,
+		vrfRepo: vrfRepo, rpcClient: rpcClient, rpcServer: rpcServer, authController: authController}
 }
 
 func (ams *AuthMicroservice) Setup() {
@@ -56,8 +64,6 @@ func (ams *AuthMicroservice) Setup() {
 }
 
 func (ams *AuthMicroservice) Run() {
-	go ams.rpcServer.RegisterGetUserHomeDirectory()
-	go ams.rpcServer.RegisterValidateJwt()
 	go ams.rpcServer.RegisterGetUserDataByJwt()
 	go ams.rpcServer.RegisterGetUserDataById()
 	ams.app.Listen(":8080")
