@@ -4,8 +4,6 @@ import (
 	"dfs/auth/dtos"
 	"dfs/auth/models"
 	"encoding/json"
-	"strconv"
-
 	"github.com/dgrijalva/jwt-go"
 	"github.com/streadway/amqp"
 	"go.uber.org/zap"
@@ -24,225 +22,14 @@ func NewRpcServer(logger *zap.Logger, db *gorm.DB) *RpcServer {
 	return &RpcServer{logger: logger, db: db, connection: conn}
 }
 
-func (rpc *RpcServer) RegisterValidateJwt() {
-	ch, err := rpc.connection.Channel()
-	rpc.failOnError(err, "Failed to open a channel")
-	defer ch.Close()
-
-	// Storage service RPC queue aka RPC Server
-	rpcQueue, err := ch.QueueDeclare(
-		"rpc_auth_validate_jwt_queue", // name
-		false,                         // durable
-		false,                         // delete when unused
-		false,                         // exclusive
-		false,                         // no-wait
-		nil,                           // arguments
-	)
-
-	rpc.failOnError(err, "Failed to declare a queue")
-
-	// Don't dispatch a new message to this worker until it has  processed and acknowledged the previous one
-	err = ch.Qos(
-		1,     // prefetch count
-		0,     // prefetch size
-		false, // global
-	)
-
-	rpc.failOnError(err, "Failed to set QoS")
-
-	// Get server messages channel
-	messages, err := ch.Consume(
-		rpcQueue.Name, // queue
-		"",            // consumer
-		false,         // auto-ack
-		false,         // exclusive
-		false,         // no-local
-		false,         // no-wait
-		nil,           // args
-	)
-
-	rpc.failOnError(err, "Failed to register a consumer")
-	forever := make(chan bool)
-
-	go func() {
-		// Listen and preocess each RPC request
-		for msg := range messages {
-			rawToken := string(msg.Body)
-
-			rpc.logger.Debug("[<--]", zap.String("Jwt", rawToken))
-
-			const SecretKey = "secret"
-			token, err := jwt.ParseWithClaims(rawToken, &jwt.StandardClaims{}, func(token *jwt.Token) (interface{}, error) {
-				return []byte(SecretKey), nil
-			})
-
-			var response bool
-
-			if err != nil {
-				rpc.logger.Debug("Cannot parse token", zap.Error(err))
-				response = false
-			} else {
-				response = token.Valid
-			}
-
-			rpc.logger.Debug("[-->]", zap.Bool("Authenticated", response))
-
-			// Send message to client callback queue
-			err = ch.Publish(
-				"",          // exchange
-				msg.ReplyTo, // routing key
-				false,       // mandatory
-				false,       // immediate
-				amqp.Publishing{
-					ContentType:   "text/plain",
-					CorrelationId: msg.CorrelationId,
-					Body:          []byte(strconv.FormatBool(response)),
-				})
-
-			rpc.failOnError(err, "Failed to publish a message")
-
-			// Send manual acknowledgement
-			msg.Ack(false)
-		}
-	}()
-
-	rpc.logger.Info("[*] Awaiting 'ValidateJwt' RPC requests")
-	<-forever
-}
-
-func (rpc *RpcServer) RegisterGetUserHomeDirectory() {
-	ch, err := rpc.connection.Channel()
-	rpc.failOnError(err, "Failed to open a channel")
-	defer ch.Close()
-
-	// Storage service RPC queue aka RPC Server
-	rpcQueue, err := ch.QueueDeclare(
-		"rpc_auth_get_user_home_dir_queue", // name
-		false,                              // durable
-		false,                              // delete when unused
-		false,                              // exclusive
-		false,                              // no-wait
-		nil,                                // arguments
-	)
-
-	rpc.failOnError(err, "Failed to declare a queue")
-
-	// Don't dispatch a new message to this worker until it has  processed and acknowledged the previous one
-	err = ch.Qos(
-		1,     // prefetch count
-		0,     // prefetch size
-		false, // global
-	)
-
-	rpc.failOnError(err, "Failed to set QoS")
-
-	// Get server messages channel
-	messages, err := ch.Consume(
-		rpcQueue.Name, // queue
-		"",            // consumer
-		false,         // auto-ack
-		false,         // exclusive
-		false,         // no-local
-		false,         // no-wait
-		nil,           // args
-	)
-
-	rpc.failOnError(err, "Failed to register a consumer")
-	forever := make(chan bool)
-
-	go func() {
-		// Listen and preocess each RPC request
-		for msg := range messages {
-			rawToken := string(msg.Body)
-
-			rpc.logger.Debug("[<--]", zap.String("Jwt", rawToken))
-
-			const SecretKey = "secret"
-			token, err := jwt.ParseWithClaims(rawToken, &jwt.StandardClaims{}, func(token *jwt.Token) (interface{}, error) {
-				return []byte(SecretKey), nil
-			})
-
-			homeDir := ""
-
-			if err != nil {
-				rpc.logger.Warn("Cannot parse token", zap.Error(err))
-			} else {
-				claims := token.Claims.(*jwt.StandardClaims)
-
-				var user models.User
-
-				if rpc.db.Where("id = ?", claims.Issuer).First(&user).Error == nil {
-					homeDir = user.HomeDirectory
-				}
-			}
-
-			rpc.logger.Debug("[-->]", zap.String("HomeDirectory", homeDir))
-
-			// Send message to client callback queue
-			err = ch.Publish(
-				"",          // exchange
-				msg.ReplyTo, // routing key
-				false,       // mandatory
-				false,       // immediate
-				amqp.Publishing{
-					ContentType:   "text/plain",
-					CorrelationId: msg.CorrelationId,
-					Body:          []byte(homeDir),
-				})
-
-			rpc.failOnError(err, "Failed to publish a message")
-
-			// Send manual acknowledgement
-			msg.Ack(false)
-		}
-	}()
-
-	rpc.logger.Info("[*] Awaiting 'GetUserHomeDirectory' RPC requests")
-	<-forever
-}
-
 func (rpc *RpcServer) RegisterGetUserDataByJwt() {
-	ch, err := rpc.connection.Channel()
-	rpc.failOnError(err, "Failed to open a channel")
+	ch, _, messages := rpc.createQueue("rpc_storage_get_file_content")
 	defer ch.Close()
 
-	// Storage service RPC queue aka RPC Server
-	rpcQueue, err := ch.QueueDeclare(
-		"rpc_auth_get_user_data_by_jwt_queue", // name
-		false,                                 // durable
-		false,                                 // delete when unused
-		false,                                 // exclusive
-		false,                                 // no-wait
-		nil,                                   // arguments
-	)
-
-	rpc.failOnError(err, "Failed to declare a queue")
-
-	// Don't dispatch a new message to this worker until it has  processed and acknowledged the previous one
-	err = ch.Qos(
-		1,     // prefetch count
-		0,     // prefetch size
-		false, // global
-	)
-
-	rpc.failOnError(err, "Failed to set QoS")
-
-	// Get server messages channel
-	messages, err := ch.Consume(
-		rpcQueue.Name, // queue
-		"",            // consumer
-		false,         // auto-ack
-		false,         // exclusive
-		false,         // no-local
-		false,         // no-wait
-		nil,           // args
-	)
-
-	rpc.failOnError(err, "Failed to register a consumer")
 	forever := make(chan bool)
 
 	go func() {
-		// Listen and preocess each RPC request
+		// Listen and process each RPC request
 		for msg := range messages {
 			rawToken := string(msg.Body)
 
@@ -283,22 +70,7 @@ func (rpc *RpcServer) RegisterGetUserDataByJwt() {
 
 			rpc.logger.Debug("[-->]", zap.String("UserData", string(serializedUser)))
 
-			// Send message to client callback queue
-			err = ch.Publish(
-				"",          // exchange
-				msg.ReplyTo, // routing key
-				false,       // mandatory
-				false,       // immediate
-				amqp.Publishing{
-					ContentType:   "text/plain",
-					CorrelationId: msg.CorrelationId,
-					Body:          []byte(serializedUser),
-				})
-
-			rpc.failOnError(err, "Failed to publish a message")
-
-			// Send manual acknowledgement
-			msg.Ack(false)
+			rpc.publishAndAck(ch, msg, serializedUser, "application/json")
 		}
 	}()
 
@@ -307,59 +79,25 @@ func (rpc *RpcServer) RegisterGetUserDataByJwt() {
 }
 
 func (rpc *RpcServer) RegisterGetUserDataById() {
-	ch, err := rpc.connection.Channel()
-	rpc.failOnError(err, "Failed to open a channel")
+	ch, _, messages := rpc.createQueue("rpc_storage_get_file_content")
 	defer ch.Close()
 
-	// Storage service RPC queue aka RPC Server
-	rpcQueue, err := ch.QueueDeclare(
-		"rpc_auth_get_user_data_by_id_queue", // name
-		false,                                // durable
-		false,                                // delete when unused
-		false,                                // exclusive
-		false,                                // no-wait
-		nil,                                  // arguments
-	)
-
-	rpc.failOnError(err, "Failed to declare a queue")
-
-	// Don't dispatch a new message to this worker until it has  processed and acknowledged the previous one
-	err = ch.Qos(
-		1,     // prefetch count
-		0,     // prefetch size
-		false, // global
-	)
-
-	rpc.failOnError(err, "Failed to set QoS")
-
-	// Get server messages channel
-	messages, err := ch.Consume(
-		rpcQueue.Name, // queue
-		"",            // consumer
-		false,         // auto-ack
-		false,         // exclusive
-		false,         // no-local
-		false,         // no-wait
-		nil,           // args
-	)
-
-	rpc.failOnError(err, "Failed to register a consumer")
 	forever := make(chan bool)
 
 	go func() {
-		// Listen and preocess each RPC request
+		// Listen and process each RPC request
 		for msg := range messages {
-			rpc.logger.Debug("[<--]", zap.ByteString("UserId", msg.Body))
+			rpc.logger.Debug("[<--]", zap.ByteString("SharedToId", msg.Body))
 
 			var userId uint
 
 			err := json.Unmarshal(msg.Body, &userId)
 
 			if err != nil {
-				rpc.logger.Error("Cannot deserialize UserId to uint", zap.Error(err))
+				rpc.logger.Error("Cannot deserialize SharedToId to uint", zap.Error(err))
 			}
 
-			// rpc.failOnError(err, "Cannot parse UserId to uint")
+			// rpc.failOnError(err, "Cannot parse SharedToId to uint")
 
 			var user models.User
 			var userDto *dtos.User = nil
@@ -385,22 +123,7 @@ func (rpc *RpcServer) RegisterGetUserDataById() {
 
 			rpc.logger.Debug("[-->]", zap.String("UserData", string(serializedUser)))
 
-			// Send message to client callback queue
-			err = ch.Publish(
-				"",          // exchange
-				msg.ReplyTo, // routing key
-				false,       // mandatory
-				false,       // immediate
-				amqp.Publishing{
-					ContentType:   "application/json",
-					CorrelationId: msg.CorrelationId,
-					Body:          serializedUser,
-				})
-
-			rpc.failOnError(err, "Failed to publish a message")
-
-			// Send manual acknowledgement
-			msg.Ack(false)
+			rpc.publishAndAck(ch, msg, serializedUser, "application/json")
 		}
 	}()
 
@@ -410,6 +133,66 @@ func (rpc *RpcServer) RegisterGetUserDataById() {
 
 func (rpc *RpcServer) Close() {
 	rpc.connection.Close()
+}
+
+func (rpc *RpcServer) publishAndAck(ch *amqp.Channel, msg amqp.Delivery, data []byte, contentType string) {
+	// Send message to client callback queue
+	err := ch.Publish(
+		"",          // exchange
+		msg.ReplyTo, // routing key
+		false,       // mandatory
+		false,       // immediate
+		amqp.Publishing{
+			ContentType:   contentType,
+			CorrelationId: msg.CorrelationId,
+			Body:          data,
+		})
+
+	rpc.failOnError(err, "Failed to publish a message")
+
+	// Send manual acknowledgement
+	msg.Ack(false)
+}
+
+func (rpc *RpcServer) createQueue(queueName string) (*amqp.Channel, amqp.Queue, <-chan amqp.Delivery) {
+	ch, err := rpc.connection.Channel()
+	rpc.failOnError(err, "Failed to open a channel")
+
+	// Storage service RPC queue aka RPC Server
+	rpcQueue, err := ch.QueueDeclare(
+		queueName, // name
+		false,     // durable
+		false,     // delete when unused
+		false,     // exclusive
+		false,     // no-wait
+		nil,       // arguments
+	)
+
+	rpc.failOnError(err, "Failed to declare a queue")
+
+	// Don't dispatch a new message to this worker until it has  processed and acknowledged the previous one
+	err = ch.Qos(
+		1,     // prefetch count
+		0,     // prefetch size
+		false, // global
+	)
+
+	rpc.failOnError(err, "Failed to set QoS")
+
+	// Get server messages channel
+	messages, err := ch.Consume(
+		rpcQueue.Name, // queue
+		"",            // consumer
+		false,         // auto-ack
+		false,         // exclusive
+		false,         // no-local
+		false,         // no-wait
+		nil,           // args
+	)
+
+	rpc.failOnError(err, "Failed to register a consumer")
+
+	return ch, rpcQueue, messages
 }
 
 func (rpc *RpcServer) failOnError(err error, msg string) {
