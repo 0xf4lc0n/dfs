@@ -123,6 +123,42 @@ func (rpc *RpcServer) RegisterGetFileById() {
 	<-forever
 }
 
+func (rpc *RpcServer) RegisterGetFileByUniqueName() {
+	ch, _, messages := rpc.createQueue("rpc_storage_get_file_by_unique_name_queue")
+	defer ch.Close()
+
+	forever := make(chan bool)
+
+	go func() {
+		// Listen and process each RPC request
+		for msg := range messages {
+			rpc.logger.Debug("[<--]", zap.ByteString("SerializedFileUniqueName", msg.Body))
+
+			var fileEntry *models.File = nil
+			var fileUniqueName string
+
+			err := json.Unmarshal(msg.Body, &fileUniqueName)
+
+			rpc.failOnError(err, "Cannot deserialize object to shareDto")
+
+			if rpc.database.Where("unique_name = ?", fileUniqueName).FirstOrInit(&fileEntry).Error != nil {
+				fileEntry = nil
+			}
+
+			serializedFileEntry, err := json.Marshal(fileEntry)
+
+			rpc.failOnError(err, "Cannot serialize file entry")
+
+			rpc.logger.Debug("[-->]", zap.String("FileEntry", string(serializedFileEntry)))
+
+			rpc.publishAndAck(ch, msg, serializedFileEntry, "application/json")
+		}
+	}()
+
+	rpc.logger.Info("[*] Awaiting 'GetFileByUniqueName' RPC requests")
+	<-forever
+}
+
 func (rpc *RpcServer) RegisterSaveFileOnDisk() {
 	ch, _, messages := rpc.createQueue("rpc_storage_save_file")
 	defer ch.Close()
