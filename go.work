@@ -7,3 +7,5 @@ use ./auth
 use ./share
 
 use ./sharespace
+
+use ./storageGateway
