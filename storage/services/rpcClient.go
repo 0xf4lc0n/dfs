@@ -2,6 +2,7 @@ package services
 
 import (
 	"dfs/storage/dtos"
+	"dfs/storage/node"
 	"encoding/json"
 	"github.com/google/uuid"
 	"github.com/streadway/amqp"
@@ -64,6 +65,43 @@ func (rpc *RpcClient) GetUserDataByJwt(jwt string) *dtos.User {
 	}
 
 	return nil
+}
+
+func (rpc *RpcClient) SendNodeMessage(node *node.Message) {
+	ch, err := rpc.connection.Channel()
+	rpc.failOnError(err, "Failed to open a channel")
+	defer ch.Close()
+
+	q, err := ch.QueueDeclare(
+		"rpc_gateway_node_messages", // name
+		false,                       // durable
+		false,                       // delete when unused
+		false,                       // exclusive
+		false,                       // no-wait
+		nil,                         // arguments
+	)
+
+	rpc.failOnError(err, "Failed to declare a queue")
+
+	serializedNodeMessage, err := json.Marshal(node)
+
+	if err != nil {
+		rpc.failOnError(err, "Cannot serialize ActionType dto")
+	}
+
+	err = ch.Publish(
+		"",     // exchange
+		q.Name, // routing key
+		false,  // mandatory
+		false,  // immediate
+		amqp.Publishing{
+			ContentType: "application/json",
+			Body:        serializedNodeMessage,
+		})
+
+	rpc.failOnError(err, "Failed to publish a message")
+
+	rpc.logger.Debug("[-->]", zap.ByteString("SerializedNodeDto", serializedNodeMessage))
 }
 
 func (rpc *RpcClient) Close() {
