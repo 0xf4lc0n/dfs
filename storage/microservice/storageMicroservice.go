@@ -5,14 +5,16 @@ import (
 	"dfs/storage/controllers"
 	"dfs/storage/database"
 	"dfs/storage/dtos"
+	"dfs/storage/node"
 	"dfs/storage/services"
-	"log"
-
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/session"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"log"
+	"os"
+	"os/signal"
 )
 
 type StorageMicroservice struct {
@@ -92,6 +94,8 @@ func (sms *StorageMicroservice) Setup() {
 }
 
 func (sms *StorageMicroservice) Run() {
+	sms.rpcClient.SendNodeMessage(node.CreateRegisterNodeMessage(sms.config.FullAddress))
+
 	go sms.rpcServer.RegisterCreateHomeDirectory()
 	go sms.rpcServer.RegisterGetOwnedFile()
 	go sms.rpcServer.RegisterGetFileById()
@@ -99,11 +103,33 @@ func (sms *StorageMicroservice) Run() {
 	go sms.rpcServer.RegisterSaveFileOnDisk()
 	go sms.rpcServer.RegisterDeleteFileFromDisk()
 	go sms.rpcServer.RegisterGetFileContentFromDisk()
-	sms.app.Listen(":8081")
+
+	sms.HandleInterrupt()
+
+	if err := sms.app.Listen(sms.config.FullAddress); err != nil {
+		sms.Cleanup()
+		sms.logger.Panic("Cannot setup fiber listener", zap.Error(err))
+	}
+}
+
+func (sms *StorageMicroservice) HandleInterrupt() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		_ = <-c
+		sms.logger.Debug("Gracefully shutting down...")
+		_ = sms.app.Shutdown()
+	}()
 }
 
 func (sms *StorageMicroservice) Cleanup() {
-	sms.logger.Sync()
+	sms.rpcClient.SendNodeMessage(node.CreateDeregisterNodeMessage(sms.config.FullAddress))
+
 	sms.rpcServer.Close()
 	sms.rpcClient.Close()
+
+	if err := sms.logger.Sync(); err != nil {
+		log.Printf("Cannot sync logger. Error: %s", err)
+	}
+
 }
