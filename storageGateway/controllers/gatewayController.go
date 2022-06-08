@@ -1,18 +1,20 @@
 package controllers
 
 import (
+	"dfs/storageGateway/balancer"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/session"
 	"go.uber.org/zap"
 )
 
 type GatewayController struct {
-	logger *zap.Logger
-	store  *session.Store
+	logger   *zap.Logger
+	store    *session.Store
+	balancer *balancer.RoundRobin
 }
 
-func NewGatewayController(log *zap.Logger, store *session.Store) *GatewayController {
-	return &GatewayController{logger: log, store: store}
+func NewGatewayController(log *zap.Logger, store *session.Store, rrBalancer *balancer.RoundRobin) *GatewayController {
+	return &GatewayController{logger: log, store: store, balancer: rrBalancer}
 }
 
 func (gc *GatewayController) RegisterRoutes(app *fiber.App) {
@@ -23,6 +25,10 @@ func (gc *GatewayController) RegisterRoutes(app *fiber.App) {
 }
 
 func (gc *GatewayController) uploadFile(ctx *fiber.Ctx) error {
+	pickedNode := gc.balancer.Next()
+
+	gc.logger.Debug("Gateway picked node", zap.String("NodeAddress", pickedNode))
+
 	return ctx.SendStatus(fiber.StatusOK)
 }
 

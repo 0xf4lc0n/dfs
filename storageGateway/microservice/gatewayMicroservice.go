@@ -1,6 +1,7 @@
 package microservice
 
 import (
+	"dfs/storageGateway/balancer"
 	"dfs/storageGateway/config"
 	"dfs/storageGateway/controllers"
 	"dfs/storageGateway/dtos"
@@ -19,6 +20,7 @@ type GatewayMicroservice struct {
 	config            *config.Config
 	logger            *zap.Logger
 	nodes             *node.ActiveNodes
+	balancer          *balancer.RoundRobin
 	rpcClient         *services.RpcClient
 	rpcServer         *services.RpcServer
 	app               *fiber.App
@@ -40,17 +42,18 @@ func NewGatewayMicroservice() *GatewayMicroservice {
 	app := fiber.New()
 	store := session.New()
 
-	nodesStorage := node.NewNodes(logger)
+	activeNodes := node.NewNodes(logger)
+	rrBalancer := balancer.New(activeNodes)
 
 	rpcClient := services.NewRpcClient(logger)
-	rpcServer := services.NewRpcServer(logger, nodesStorage)
+	rpcServer := services.NewRpcServer(logger, activeNodes)
 
-	gatewayController := controllers.NewGatewayController(logger, store)
+	gatewayController := controllers.NewGatewayController(logger, store, rrBalancer)
 
 	store.RegisterType(dtos.UserDto{})
 
-	return &GatewayMicroservice{config: cfg, logger: logger, nodes: nodesStorage, rpcClient: rpcClient,
-		rpcServer: rpcServer, app: app, sessionStore: store, gatewayController: gatewayController}
+	return &GatewayMicroservice{config: cfg, logger: logger, nodes: activeNodes, balancer: rrBalancer,
+		rpcClient: rpcClient, rpcServer: rpcServer, app: app, sessionStore: store, gatewayController: gatewayController}
 }
 
 func (gm *GatewayMicroservice) Setup() {
@@ -59,25 +62,25 @@ func (gm *GatewayMicroservice) Setup() {
 	}))
 
 	gm.app.Use(func(c *fiber.Ctx) error {
-		cookie := c.Cookies("jwt")
-
-		userData := gm.rpcClient.GetUserDataByJwt(cookie)
-
-		if userData == nil {
-			return c.SendStatus(fiber.StatusUnauthorized)
-		}
-
-		sess, err := gm.sessionStore.Get(c)
-
-		if err != nil {
-			gm.logger.Panic("Cannot get session", zap.Error(err))
-		}
-
-		sess.Set("userData", userData)
-
-		if err := sess.Save(); err != nil {
-			gm.logger.Panic("Cannot save session", zap.Error(err))
-		}
+		//cookie := c.Cookies("jwt")
+		//
+		//userData := gm.rpcClient.GetUserDataByJwt(cookie)
+		//
+		//if userData == nil {
+		//	return c.SendStatus(fiber.StatusUnauthorized)
+		//}
+		//
+		//sess, err := gm.sessionStore.Get(c)
+		//
+		//if err != nil {
+		//	gm.logger.Panic("Cannot get session", zap.Error(err))
+		//}
+		//
+		//sess.Set("userData", userData)
+		//
+		//if err := sess.Save(); err != nil {
+		//	gm.logger.Panic("Cannot save session", zap.Error(err))
+		//}
 
 		return c.Next()
 	})
@@ -86,7 +89,7 @@ func (gm *GatewayMicroservice) Setup() {
 }
 
 func (gm *GatewayMicroservice) Run() {
-	gm.rpcServer.RegisterNodeMessages()
+	go gm.rpcServer.RegisterNodeMessages()
 
 	gm.HandleInterrupt()
 
