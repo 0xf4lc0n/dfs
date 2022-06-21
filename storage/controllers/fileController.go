@@ -28,11 +28,11 @@ func NewFileController(cfg *config.Config, log *zap.Logger, rpc *services.RpcCli
 	return &FileController{cfg: cfg, log: log, rpc: rpc, store: store, storageRpo: storageRpo, fileSrv: fileSrv}
 }
 
-func (fc *FileController) RegisterRoutes(app *fiber.App) {
-	app.Post("/api/file", fc.uploadFile)
-	app.Get("/api/file/:fileUniqueName", fc.downloadFile)
-	app.Get("/api/file", fc.getUserFiles)
-	app.Delete("/api/file/:fileUniqueName", fc.deleteFile)
+func (fc *FileController) RegisterRoutes(app *fiber.Router) {
+	(*app).Post("/", fc.uploadFile)
+	(*app).Get("/:fileUniqueName", fc.downloadFile)
+	(*app).Get("/", fc.getUserFiles)
+	(*app).Delete("/:fileUniqueName", fc.deleteFile)
 }
 
 func (fc *FileController) uploadFile(ctx *fiber.Ctx) error {
@@ -82,6 +82,10 @@ func (fc *FileController) uploadFile(ctx *fiber.Ctx) error {
 		return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "cannot upload file to the server"})
 	}
 
+	if fc.storageRpo.CheckIfOwnedFileExistByName(fileHeader.Filename, userData.Id) {
+		return ctx.SendStatus(fiber.StatusCreated)
+	}
+
 	if fc.storageRpo.CreateFile(fileUniqueName, fileHeader.Filename, userData.Id) != 0 {
 		return ctx.SendStatus(fiber.StatusCreated)
 	} else {
@@ -100,7 +104,7 @@ func (fc *FileController) downloadFile(ctx *fiber.Ctx) error {
 	}
 
 	userData := sess.Get("userData").(dtos.User)
-	file := fc.storageRpo.GetOwnedFileByName(fileUniqueName, userData.Id)
+	file := fc.storageRpo.GetOwnedFileByUniqueName(fileUniqueName, userData.Id)
 
 	if file == nil {
 		return ctx.SendStatus(fiber.StatusNotFound)
@@ -146,7 +150,7 @@ func (fc *FileController) deleteFile(ctx *fiber.Ctx) error {
 	}
 
 	userData := sess.Get("userData").(dtos.User)
-	file := fc.storageRpo.GetOwnedFileByName(fileUniqueName, userData.Id)
+	file := fc.storageRpo.GetOwnedFileByUniqueName(fileUniqueName, userData.Id)
 
 	if file == nil {
 		return ctx.SendStatus(fiber.StatusNotFound)

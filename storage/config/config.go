@@ -12,13 +12,14 @@ import (
 type Config struct {
 	IpAddress          string
 	Port               uint64
+	GRpcPort           uint64
 	FullAddress        string
 	DbConnectionString string
 	FileStoragePath    string
 }
 
 func Create() *Config {
-
+	cfg := &Config{}
 	var cliArgs CliArgs
 	kong.Parse(&cliArgs)
 
@@ -28,37 +29,47 @@ func Create() *Config {
 		log.Printf("Cannot load .env file")
 	}
 
-	var ipAddress string
-
 	if cliArgs.IpAddress != "" {
-		ipAddress = cliArgs.IpAddress
+		cfg.IpAddress = cliArgs.IpAddress
 	} else {
-		ipAddress = os.Getenv("IP_ADDRESS")
+		cfg.IpAddress = os.Getenv("IP_ADDRESS")
 	}
 
-	var port uint64
-
 	if cliArgs.Port != 0 {
-		port = cliArgs.Port
+		cfg.Port = cliArgs.Port
 	} else {
-		var err error
-		port, err = strconv.ParseUint(os.Getenv("PORT"), 10, 0)
+		port, err := strconv.ParseUint(os.Getenv("PORT"), 10, 0)
 
 		if err != nil {
 			log.Print(err)
 			log.Fatal("Cannot parse port value to uint")
 		}
+
+		cfg.Port = port
 	}
 
-	fullAddress := fmt.Sprintf("%s:%d", ipAddress, port)
+	if cliArgs.GrpcPort != 0 {
+		cfg.GRpcPort = cliArgs.GrpcPort
+	} else {
+		grpcPort, err := strconv.ParseUint(os.Getenv("GRPC_PORT"), 10, 0)
 
-	cfg := &Config{
-		IpAddress:          ipAddress,
-		Port:               port,
-		FullAddress:        fullAddress,
-		DbConnectionString: os.Getenv("DB_CONNECTION_STRING"),
-		FileStoragePath:    os.Getenv("STORAGE_PATH"),
+		if err != nil {
+			log.Print(err)
+			log.Fatal("Cannot parse grpc port value to uint")
+		}
+
+		cfg.GRpcPort = grpcPort
 	}
+
+	if cliArgs.StoragePath != "" {
+		cfg.FileStoragePath = cliArgs.StoragePath
+	} else {
+		cfg.FileStoragePath = os.Getenv("STORAGE_PATH")
+	}
+
+	cfg.FullAddress = fmt.Sprintf("%s:%d", cfg.IpAddress, cfg.Port)
+
+	cfg.DbConnectionString = os.Getenv("DB_CONNECTION_STRING")
 
 	return cfg
 }

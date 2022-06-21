@@ -23,7 +23,7 @@ func NewRpcServer(logger *zap.Logger, db *gorm.DB) *RpcServer {
 }
 
 func (rpc *RpcServer) RegisterGetUserDataByJwt() {
-	ch, _, messages := rpc.createQueue("rpc_storage_get_file_content")
+	ch, _, messages := rpc.createQueue("rpc_auth_get_user_data_by_jwt_queue")
 	defer ch.Close()
 
 	forever := make(chan bool)
@@ -79,7 +79,7 @@ func (rpc *RpcServer) RegisterGetUserDataByJwt() {
 }
 
 func (rpc *RpcServer) RegisterGetUserDataById() {
-	ch, _, messages := rpc.createQueue("rpc_storage_get_file_content")
+	ch, _, messages := rpc.createQueue("rpc_auth_get_user_data_by_id_queue")
 	defer ch.Close()
 
 	forever := make(chan bool)

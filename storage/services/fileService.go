@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"go.uber.org/zap"
 	"io"
+	fsl "io/fs"
+	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -51,7 +53,9 @@ func (fs *FileService) SaveFileOnDisk(filePath string, fileContent []byte) bool 
 }
 
 func (fs *FileService) ReadFileFromDisk(filePath string) []byte {
-	readPath := path.Join(fs.config.FileStoragePath, filePath)
+	cleanedPath := filepath.Clean(filePath)
+
+	readPath := path.Join(fs.config.FileStoragePath, cleanedPath)
 	fileContent, err := os.ReadFile(readPath)
 
 	if err != nil {
@@ -149,6 +153,47 @@ func (fs *FileService) CreateDirectory(directoryName string) bool {
 
 	if err := os.Mkdir(directoryPath, 0755); err != nil {
 		fs.logger.Error("Cannot create home directory", zap.Error(err))
+		return false
+	}
+
+	return true
+}
+
+func (fs *FileService) GetStoredFiles() map[string][]byte {
+	storedFiles := map[string][]byte{}
+
+	err := filepath.WalkDir(fs.config.FileStoragePath, func(path string, di fsl.DirEntry, err error) error {
+		if path != fs.config.FileStoragePath && di.IsDir() == false {
+			path = path[len(fs.config.FileStoragePath):]
+
+			fs.logger.Debug("Reading file", zap.String("FilePath", path))
+			fileContent, err := ioutil.ReadFile(filepath.Join(fs.config.FileStoragePath, path))
+
+			if err != nil {
+				fs.logger.Fatal("Cannot read file", zap.Error(err))
+			}
+
+			storedFiles[path] = fileContent
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		fs.logger.Fatal("Cannot read files from disk", zap.Error(err))
+		return nil
+	}
+
+	return storedFiles
+}
+
+func (fs *FileService) CreateMissingDirs(filePath string) bool {
+	cleanedPath := filepath.Clean(filePath)
+	dirPath := filepath.Dir(cleanedPath)
+	createPath := path.Join(fs.config.FileStoragePath, dirPath)
+
+	if err := os.MkdirAll(createPath, 0755); err != os.ErrExist || err != nil {
+		fs.logger.Error("Cannot create missing directories", zap.Error(err))
 		return false
 	}
 

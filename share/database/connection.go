@@ -11,7 +11,7 @@ func Connect(connectionString string) (*gorm.DB, error) {
 	connection, err := gorm.Open(postgres.Open(connectionString), &gorm.Config{})
 
 	if err != nil {
-		return nil, errors.New("Could not connect to the database")
+		return nil, errors.New("could not connect to the database")
 	}
 
 	connection.AutoMigrate(&models.Share{})

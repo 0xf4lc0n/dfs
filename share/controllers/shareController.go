@@ -66,7 +66,7 @@ func (sc *ShareController) shareFile(c *fiber.Ctx) error {
 	sharedFile := sc.rpc.GetOwnedFile(&dtos.OwnedFileDto{OwnerId: shareDto.SharedById, FileId: shareDto.FileId})
 
 	if sharedFile == nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "cannot share nonexisting file"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "cannot share nonexistent file"})
 	}
 
 	if sc.shRepo.CreateShareFileEntry(sharedFile.Id, sharedFor.Id, sharedBy.Id, shareDto.ExpirationTime) == false {

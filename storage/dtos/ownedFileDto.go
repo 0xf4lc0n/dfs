@@ -1,6 +1,6 @@
 package dtos
 
 type OwnedFileDto struct {
-	FileId  uint `json:"fileId"`
-	OwnerId uint `json:"ownerId"`
+	FileUniqueName string `json:"fileUniqueName"`
+	OwnerId        uint64 `json:"ownerId"`
 }

@@ -9,3 +9,5 @@ use ./share
 use ./sharespace
 
 use ./storageGateway
+
+use ./proto

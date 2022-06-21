@@ -57,7 +57,7 @@ func (rpc *RpcClient) CreateHomeDirectory(directoryName string) bool {
 				rpc.logger.Debug("Failed to convert body to bool", zap.Error(err))
 				return false
 			} else {
-				rpc.logger.Debug("[<--]", zap.Bool("IsHomeDriectoryCreated", response))
+				rpc.logger.Debug("[<--]", zap.Bool("IsHomeDirectoryCreated", response))
 				return response
 			}
 		}

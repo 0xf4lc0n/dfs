@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package dfs.proto;
+
+option go_package = "dfs/proto";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+service Storage {
+  rpc CreateHomeDirectory(HomeDir) returns (StorageResult);
+  rpc GetOwnedFile(OwnedFileRequest) returns (FileEntry);
+  rpc GetFileById(GetFileByIdRequest) returns (FileEntry);
+  rpc GetFileByUniqueName(FileUniqueName) returns (FileEntry);
+  rpc SaveFileOnDisk(SaveFileRequest) returns (StorageResult);
+  rpc DeleteFileFromDisk(DeleteFileRequest) returns (StorageResult);
+  rpc GetFileContentFromDisk(ReadFileRequest) returns (FileContent);
+  rpc GetStoredFiles(google.protobuf.Empty) returns (StoredFiles);
+  rpc SyncStoredFiles(StoredFiles) returns (StorageResult);
+}
+
+message HomeDir {
+  string name = 1;
+}
+
+message StorageResult {
+  bool Success = 1;
+}
+
+message OwnedFileRequest  {
+  uint64 FileId = 1;
+  uint64 OwnerId = 2;
+}
+
+message GetFileByIdRequest {
+  uint64 FileId = 1;
+}
+
+message FileUniqueName {
+  string Name = 1;
+}
+
+message FileEntry  {
+  uint64 Id = 1;
+  string UniqueName = 2;
+  string Name = 3;
+  google.protobuf.Timestamp CreationDate = 4;
+  uint64 OwnerId = 5;
+}
+
+message SaveFileRequest {
+  string SavePath = 1;
+  bytes Content = 2;
+  bytes EncryptionKey = 3;
+}
+
+message DeleteFileRequest {
+  string FilePath = 1;
+}
+
+message ReadFileRequest {
+  string ReadPath = 1;
+  bytes DecryptionKey = 2;
+}
+
+message FileContent {
+  bytes Content = 1;
+}
+
+message StoredFiles {
+  repeated string FilesPath = 1;
+  repeated bytes FilesContent = 2;
+}

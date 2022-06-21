@@ -108,7 +108,7 @@ func (rpc *RpcClient) GetOwnedFile(shareDto *dtos.OwnedFileDto) *dtos.FileDto {
 			err := json.Unmarshal(msg.Body, &fileDto)
 
 			if err != nil {
-				rpc.logger.Error("Cannot deserialize data to UserDto", zap.Error(err))
+				rpc.logger.Error("Cannot deserialize data to FileDto", zap.Error(err))
 				return nil
 			}
 

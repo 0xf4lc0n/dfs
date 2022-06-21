@@ -1,5 +1,7 @@
 package node
 
+import "github.com/google/uuid"
+
 type ActionType uint
 
 const (
@@ -7,15 +9,22 @@ const (
 	Delete ActionType = iota
 )
 
-type Message struct {
-	NodeAddress string
-	Action      ActionType
+type Node struct {
+	Uuid      uuid.UUID
+	IpAddress string
+	Port      uint64
+	GrpcPort  uint64
 }
 
-func CreateRegisterNodeMessage(address string) *Message {
-	return &Message{NodeAddress: address, Action: Add}
+type LifeCycleMessage struct {
+	Node   Node
+	Action ActionType
 }
 
-func CreateDeregisterNodeMessage(address string) *Message {
-	return &Message{NodeAddress: address, Action: Delete}
+func CreateRegisterNodeMessage(node *Node) *LifeCycleMessage {
+	return &LifeCycleMessage{Node: *node, Action: Add}
+}
+
+func CreateDeregisterNodeMessage(node *Node) *LifeCycleMessage {
+	return &LifeCycleMessage{Node: *node, Action: Delete}
 }

@@ -10,14 +10,15 @@ import (
 )
 
 type RpcClient struct {
+	uuid       uuid.UUID
 	logger     *zap.Logger
 	connection *amqp.Connection
 }
 
-func NewRpcClient(logger *zap.Logger) *RpcClient {
+func NewRpcClient(logger *zap.Logger, uid uuid.UUID) *RpcClient {
 	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
 	failOnError(logger, err, "Failed to connect to RabbitMQ")
-	return &RpcClient{logger: logger, connection: conn}
+	return &RpcClient{logger: logger, connection: conn, uuid: uid}
 }
 
 func (rpc *RpcClient) GetUserDataByJwt(jwt string) *dtos.User {
@@ -67,7 +68,7 @@ func (rpc *RpcClient) GetUserDataByJwt(jwt string) *dtos.User {
 	return nil
 }
 
-func (rpc *RpcClient) SendNodeMessage(node *node.Message) {
+func (rpc *RpcClient) SendNodeMessage(node *node.LifeCycleMessage) {
 	ch, err := rpc.connection.Channel()
 	rpc.failOnError(err, "Failed to open a channel")
 	defer ch.Close()
@@ -83,7 +84,7 @@ func (rpc *RpcClient) SendNodeMessage(node *node.Message) {
 
 	rpc.failOnError(err, "Failed to declare a queue")
 
-	serializedNodeMessage, err := json.Marshal(node)
+	serializedLifeCycleMessage, err := json.Marshal(node)
 
 	if err != nil {
 		rpc.failOnError(err, "Cannot serialize ActionType dto")
@@ -96,12 +97,12 @@ func (rpc *RpcClient) SendNodeMessage(node *node.Message) {
 		false,  // immediate
 		amqp.Publishing{
 			ContentType: "application/json",
-			Body:        serializedNodeMessage,
+			Body:        serializedLifeCycleMessage,
 		})
 
 	rpc.failOnError(err, "Failed to publish a message")
 
-	rpc.logger.Debug("[-->]", zap.ByteString("SerializedNodeDto", serializedNodeMessage))
+	rpc.logger.Debug("[-->]", zap.ByteString("LifeCycleMessage", serializedLifeCycleMessage))
 }
 
 func (rpc *RpcClient) Close() {
